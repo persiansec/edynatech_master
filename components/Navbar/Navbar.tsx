@@ -20,8 +20,8 @@ export default function Navbar() {
 
   const items = [
     { label: "خانه", href: "/" },
-    { label: "کاربرد در صنایع", href: "/industries" },
-    { label: "معرفی شرکت", href: "/about" },
+    { label: "محصولات", href: "/industries" },
+    { label: "درباره ما", href: "/about" },
   ]
 
   return (
@@ -34,8 +34,8 @@ export default function Navbar() {
       style={{ fontFamily: "var(--font-baloo)" }}
     >
       <div className="mx-auto max-w-7xl px-6 h-[58px] flex items-center justify-between text-white">
-        <Link href="/" className="text-[22px] font-bold tracking-tight">
-          سیلیس نگین اصفهان
+        <Link href="/" className="text-[32px] font-bold tracking-tight">
+         فن آوران تکنولوژی هوشمند
         </Link>
 
         <div className="hidden md:flex items-center gap-9">
