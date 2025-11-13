@@ -25,12 +25,11 @@ export default function Banner({ videoSrc }: { videoSrc: string }) {
         className="absolute bottom-24 left-12 md:bottom-32 md:left-20 text-white"
       >
         <h1 className="text-4xl md:text-6xl font-bold leading-tight tracking-tight">
-          نام شرکت
+         الکتردایناتک
         </h1>
 
         <p className="text-lg md:text-2xl opacity-90 mt-2 md:mt-3">
-          کیفیت برتر، طراحی مدرن
-        </p>
+طراحی و ساخت قطعات ناوگان ریلی         </p>
       </motion.div>
     </section>
   )
