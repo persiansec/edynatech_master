@@ -21,9 +21,9 @@ export default function ContactPageClient() {
           {/* Info */}
           <motion.div initial={{ x: -20 }} whileInView={{ x: 0, opacity: 1 }} className="md:w-1/2 bg-white/5 border border-white/10 rounded-2xl p-6 shadow-lg">
             <h3 className="text-2xl font-semibold mb-4">اطلاعات تماس</h3>
-            <p className="mb-2">📍 تهران، خیابان مثال، ساختمان سیلیس نگین اصفهان</p>
-            <p className="mb-2">📞 ۰۲۱-۱۲۳۴۵۶۷۸</p>
-            <p>✉️ info@company.com</p>
+            <p className="mb-2">📍 کرج مهرشهر کوی فرهنگ نبش دوم جنوبی</p>
+            <p className="mb-2">📞 026-33314268-09120189026</p>
+            <p>✉️ info@edynatech.ir</p>
           </motion.div>
 
           {/* Form */}
