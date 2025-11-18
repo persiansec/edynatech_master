@@ -6,9 +6,7 @@ import ProductsSection from "@/components/Product/ProductsSection";
 export default function Home() {
   return (
     <>
-      <Banner videoSrc="/statics/15.mp4" />
       <ProductsSection />
-      <ProductionSection videoSrc="/statics/15.mp4" />
       <ContactSection />
     </>
   );
