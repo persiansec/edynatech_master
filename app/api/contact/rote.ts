@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   const contactData = {
-    companyName: "نوژان داینامیک",
-    address: "تهران، خیابان فناوری، ساختمان نوآوران",
-    phone: "+98 21 4444 5678",
-    email: "info@nojan.ai",
+    companyName: "الکتروداینامیک",
+    address: "کرج مهرشهر کوی فرهنک نبش دوم جنوبی",
+    phone: "09962307484-02633314268",
+    email: "info@edynatech.ir",
     mapUrl: "https://goo.gl/maps/example",
   };
 
