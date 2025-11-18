@@ -22,7 +22,7 @@ export default function Navbar() {
 
   const items = [
     { label: "خانه", href: "/" },
-    { label: "محصولات", href: "/industries" },
+    
     { label: "درباره ما", href: "/about" },
   ]
 
