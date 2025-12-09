@@ -1,0 +1,2048 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>سیستم انبار — نسخه لاگین اجباری</title>
+<style>
+@font-face {
+  font-family: 'Estedad';
+  src: url('https://cdn.fontcdn.ir/Font/Persian/Estedad/Estedad.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+:root{
+  --bg:#f5f7fb;
+  --card:#fff;
+  --primary:#0b74de;
+  --muted:#666;
+}
+html,body{height:100%}
+body{
+  font-family: Estedad, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background:var(--bg);
+  margin:0;padding:14px;direction:rtl;color:#111;
+  -webkit-font-smoothing:antialiased;
+}
+.card{background:var(--card);border-radius:10px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.06);margin-bottom:14px}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:18px;margin:0 0 8px}
+label{display:block;margin-top:8px;font-weight:700}
+input,select,textarea,button{font-family:inherit}
+input,select,textarea{width:100%;padding:12px;border:1px solid #e0e6ee;border-radius:8px;margin-top:6px;box-sizing:border-box;font-size:16px}
+textarea{resize:vertical}
+.row{display:flex;gap:10px}
+.col{flex:1}
+button{padding:10px 14px;border-radius:8px;border:0;background:var(--primary);color:#fff;cursor:pointer;font-size:15px}
+button.secondary{background:#6c757d}
+button.danger{background:#d9534f}
+button:disabled{opacity:0.5;cursor:not-allowed}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.small{font-size:13px;color:var(--muted)}
+.table-wrap{overflow:auto;max-height:340px}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
+th,td{border:1px solid #f0f3f8;padding:8px;text-align:center}
+.inline-small{display:inline-block;padding:6px 8px;border-radius:6px;background:#f1f5fa;margin-left:6px}
+.canvas-card{height:260px}
+.stats-row{display:flex;gap:12px;flex-wrap:wrap}
+.stat{background:#fff;padding:12px;border-radius:8px;min-width:160px;box-shadow:0 1px 6px rgba(0,0,0,.04)}
+.stat .num{font-size:20px;font-weight:800}
+.manage-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.manage-item{background:#f8fafc;padding:6px 10px;border-radius:8px}
+.error-box{background:#fee;border:1px solid #f5c6cb;color:#721c24;padding:10px;border-radius:8px;margin:10px 0;font-size:12px;font-family:monospace;white-space:pre-wrap;max-height:200px;overflow:auto}
+.success-box{background:#d4edda;border:1px solid #c3e6cb;color:#155724;padding:10px;border-radius:8px;margin:10px 0}
+.warning-box{background:#fff3cd;border:1px solid #ffeaa7;color:#856404;padding:10px;border-radius:8px;margin:10px 0}
+.info-box{background:#d1ecf1;border:1px solid #bee5eb;color:#0c5460;padding:10px;border-radius:8px;margin:10px 0}
+.hidden{display:none !important}
+@media (max-width:700px){
+  .row{flex-direction:column}
+  .stats-row{flex-direction:column}
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+
+<!-- Modal وضعیت همگام‌سازی -->
+<div id="syncModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:1000;">
+  <div style="background:#fff; padding:25px; width:90%; max-width:500px; border-radius:10px; text-align:center; max-height:90%; overflow:auto;">
+    <h3 id="syncModalTitle">همگام‌سازی</h3>
+    <div id="syncModalContent" style="margin:20px 0;"></div>
+    <div id="syncProgress" style="margin:15px 0; display:none;">
+      <div style="width:100%; background:#eee; border-radius:10px; height:20px;">
+        <div id="progressBar" style="width:0%; background:#0b74de; height:100%; border-radius:10px; transition:width 0.3s;"></div>
+      </div>
+      <div id="progressText" style="margin-top:5px; font-size:13px;">0%</div>
+    </div>
+    <button onclick="closeSyncModal()" style="padding:10px 30px; margin-top:15px;">باشه</button>
+  </div>
+</div>
+
+<!-- صفحه لاگین -->
+<div id="loginScreen" class="card">
+  <h1 style="text-align:center; color:#0b74de;">🔐 سیستم انبار</h1>
+  <p style="text-align:center; color:#666; margin-bottom:30px;">نسخه با احراز هویت اجباری</p>
+  
+  <div class="info-box" style="text-align:center;">
+    <strong>⚠️ توجه:</strong> برای استفاده از سیستم، ابتدا باید وارد شوید.<br>
+    <small>حتی برای کار آفلاین نیز نیاز به ورود دارید.</small>
+  </div>
+  
+  <div id="authPanel" style="margin-top:20px;">
+    <div class="row">
+      <div class="col">
+        <label>ایمیل</label>
+        <input id="authEmail" type="email" placeholder="example@domain.com" />
+      </div>
+      <div class="col">
+        <label>رمز عبور</label>
+        <input id="authPassword" type="password" placeholder="حداقل ۶ کاراکتر" />
+      </div>
+    </div>
+    
+    <div class="controls" style="margin-top:25px; justify-content:center; gap:15px;">
+      <button onclick="handleSignIn()" style="padding:12px 35px; font-size:16px;">ورود به حساب</button>
+      <button onclick="handleSignUp()" class="secondary" style="padding:12px 35px; font-size:16px;">ایجاد حساب جدید</button>
+    </div>
+    
+    <div id="loginError" class="error-box hidden" style="margin-top:20px;"></div>
+    
+    <div style="text-align:center; margin-top:25px; color:#666; font-size:13px;">
+      <p>با ورود به سیستم، شما می‌توانید:</p>
+      <ul style="text-align:right; padding-right:20px;">
+        <li>داده‌ها را آفلاین ذخیره کنید</li>
+        <li>از چند دستگاه استفاده کنید</li>
+        <li>داده‌ها را با سرور همگام کنید</li>
+        <li>به تاریخچه دسترسی داشته باشید</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- برنامه اصلی (مخفی شده تا زمان لاگین) -->
+<div id="mainApp" class="hidden">
+  <!-- نوار وضعیت کاربر -->
+  <div class="card" style="background:#f8f9fa; padding:12px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h1 style="margin:0; font-size:20px;">سیستم انبار — نسخه نهایی</h1>
+        <div class="small">کاربر: <span id="currentUserEmail">—</span></div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <div id="connectionBadge" style="padding:5px 10px; border-radius:20px; font-size:12px; background:#e9ecef;">●</div>
+        <button onclick="handleSignOut()" class="danger" style="font-size:14px;">خروج</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- پنل همگام‌سازی -->
+  <div class="card">
+    <h2>همگام‌سازی ابری با Supabase</h2>
+    
+    <div id="userInfo" style="margin-bottom:15px; padding:10px; background:#f8f9fa; border-radius:8px;">
+      <div class="small"><strong>وضعیت:</strong> <span id="authStatus" style="color:green;">وارد شده</span></div>
+      <div class="small"><strong>اتصال:</strong> <span id="syncStatus">در حال بررسی...</span></div>
+    </div>
+    
+    <div class="controls">
+      <button onclick="syncLocalToSupabase()" id="syncUpBtn" disabled>📤 آپلود به سرور</button>
+      <button onclick="loadDataFromSupabase()" id="syncDownBtn" disabled class="secondary">📥 دانلود از سرور</button>
+      <button onclick="checkConnection(true)" class="secondary">🔍 بررسی اتصال</button>
+      <button onclick="viewSyncLog()" class="secondary">📋 تاریخچه همگام‌سازی</button>
+    </div>
+    
+    <div id="errorContainer" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- فرم ثبت رکورد -->
+  <div class="card">
+    <h2>فرم ثبت / ویرایش رکورد</h2>
+    <div id="form">
+      <div class="row">
+        <div class="col">
+          <label>تاریخ (شمسی)</label>
+          <input id="date_sh" placeholder="۱۴۰۴/۰۱/۰۱" />
+        </div>
+        <div class="col">
+          <label>ثبت‌کننده</label>
+          <select id="registerer"></select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>نام کالا</label>
+          <select id="product_select"></select>
+        </div>
+        <div class="col">
+          <label>افزودن کالای جدید</label>
+          <input id="product_new" placeholder="نام کالا را وارد و سپس افزودن را بزنید" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>نوع عملیات</label>
+          <select id="operation">
+            <option>ورود کالا</option>
+            <option>خروج کالا</option>
+            <option>مصرف قطعه</option>
+            <option>تحویل به تعمیرگاه</option>
+            <option>تحویل از تعمیرگاه</option>
+            <option>مرجوعی</option>
+            <option>اسقاط</option>
+            <option>تعمیر شده</option>
+          </select>
+        </div>
+        <div class="col">
+          <label>تعداد</label>
+          <input id="amount" type="number" step="any" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col"><label>شماره سریال / پارت نامبر</label><input id="serial" /></div>
+        <div class="col"><label>شرکت</label><input id="company" /></div>
+      </div>
+
+      <label>تحویل‌دهنده</label>
+      <input id="deliverer" />
+      <label>تحویل‌گیرنده</label>
+      <input id="receiver" />
+      <label>نماینده کارفرما</label>
+      <input id="employer_rep" />
+      <label>توضیحات</label>
+      <textarea id="description" rows="3"></textarea>
+
+      <div class="controls">
+        <button id="saveBtn" onclick="saveRecord()">ثبت نهایی اطلاعات</button>
+        <button class="secondary" onclick="clearForm()">پاک کردن فرم</button>
+        <button class="secondary" id="cancelEditBtn" style="display:none" onclick="cancelEdit()">لغو ویرایش</button>
+      </div>
+
+      <!-- مدیریت کاربران -->
+      <div style="margin-top:10px">
+        <strong>مدیریت ثبت‌کننده‌ها:</strong>
+        <div class="small">می‌توانید ثبت‌کننده جدید اضافه، ویرایش یا حذف کنید.</div>
+        <div style="margin-top:8px" class="row">
+          <div class="col"><input id="new_user_input" placeholder="نام ثبت‌کننده جدید..." /></div>
+          <div style="width:160px">
+            <button class="secondary" onclick="addUserFromInput()">افزودن ثبت‌کننده</button>
+          </div>
+        </div>
+        <div id="user_controls" class="manage-list"></div>
+      </div>
+
+      <!-- مدیریت کالا -->
+      <div style="margin-top:12px">
+        <strong>مدیریت کالاها:</strong>
+        <div class="small">کالاهایی که اضافه شوند در لیست کشویی نام کالا ظاهر می‌شوند. می‌توانید نام‌ها را ویرایش یا حذف کنید.</div>
+        <div style="margin-top:8px" id="product_controls" class="manage-list"></div>
+        <div style="margin-top:8px"><button class="secondary" onclick="openProductsPanel()">مدیریت کامل کالاها</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- فهرست رکوردها و ابزارها -->
+  <div class="card">
+    <h2>فهرست سوابق و ابزارها</h2>
+    <div class="controls">
+      <input id="search" placeholder="جستجو نام کالا یا سریال..." oninput="renderList()" />
+      <select id="filter_op" onchange="renderList()">
+        <option>همه</option>
+        <option>ورود کالا</option>
+        <option>خروج کالا</option>
+        <option>مصرف قطعه</option>
+        <option>تحویل به تعمیرگاه</option>
+        <option>تحویل از تعمیرگاه</option>
+        <option>مرجوعی</option>
+        <option>اسقاط</option>
+        <option>تعمیر شده</option>
+      </select>
+      <input id="filter_comp" placeholder="فیلتر شرکت..." oninput="renderList()" />
+      <button class="secondary" onclick="clearFilters()">پاک کردن فیلترها</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="records_table">
+        <thead><tr id="thead_row"></tr></thead>
+        <tbody id="records_body"></tbody>
+      </table>
+    </div>
+
+    <div class="controls" style="margin-top:8px">
+      <button onclick="exportJSON()">پشتیبان JSON</button>
+      <button onclick="importJSON()">بارگذاری از JSON</button>
+      <button onclick="exportXLSX()">خروجی XLSX</button>
+      <button onclick="exportPDF()">خروجی PDF</button>
+      <button onclick="calcBalance()">بروزرسانی تراز</button>
+      <button onclick="syncLocalToSupabase()" class="secondary">همگام‌سازی با سرور</button>
+      <button class="danger" onclick="clearAllData()">پاک کردن همه داده‌ها</button>
+    </div>
+  </div>
+
+  <!-- نمودارها -->
+  <div class="card">
+    <h2>نمودارها و آمار</h2>
+    <div class="stats-row">
+      <div class="stat">
+        <div class="small">تعداد کل اقلام (موجودی مثبت مجموع)</div>
+        <div id="total_parts" class="num">—</div>
+      </div>
+      <div style="flex:1" class="canvas-card card">
+        <div class="small">۵ شرکت برتر (نسبتی)</div>
+        <canvas id="companyPie"></canvas>
+      </div>
+      <div style="flex:1" class="canvas-card card">
+        <div class="small">۵ کالای پرمصرف (بیشترین موجودی) - نمودار عمودی</div>
+        <canvas id="topItemsBar"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal مدیریت کامل کالا -->
+<div id="productModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:999;">
+  <div style="background:#fff; padding:20px; width:400px; max-height:80%; overflow:auto; border-radius:8px; position:relative;">
+    <h3>مدیریت کامل کالاها</h3>
+    <div id="productListModal"></div>
+    <input id="newProductModal" placeholder="کالای جدید..." style="margin-top:10px">
+    <div style="margin-top:10px">
+      <button onclick="addProductFromModal()">افزودن</button>
+      <button onclick="closeProductModal()" class="secondary">بستن</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal تاریخچه همگام‌سازی -->
+<div id="syncLogModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); justify-content:center; align-items:center; z-index:1000;">
+  <div style="background:#fff; padding:25px; width:90%; max-width:600px; border-radius:10px; max-height:90%; overflow:auto;">
+    <h3 style="margin-top:0;">📋 تاریخچه همگام‌سازی</h3>
+    <div id="syncLogContent" style="margin:15px 0; min-height:200px;">
+      <div class="info-box" style="text-align:center;">
+        در حال بارگیری تاریخچه...
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+      <button onclick="clearSyncLog()" class="danger">پاک کردن تاریخچه</button>
+      <button onclick="closeSyncLogModal()" class="secondary">بستن</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== تنظیمات Supabase ====================
+const SUPABASE_URL = 'https://vfhpiwiavoigshkrjygk.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZmaHBpd2lhdm9pZ3Noa3JqeWdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxNjk2NjYsImV4cCI6MjA4MDc0NTY2Nn0.b0ofw_5_ciX_6NYe_oN3jpE_LAiswoQ9nxJ0-DrN4s8';
+
+let supabase = null;
+let currentUser = null;
+let isOnline = false;
+let syncLog = JSON.parse(localStorage.getItem('sync_log') || '[]');
+
+// ==================== توابع کمکی ====================
+function showSyncModal(title, content, showProgress = false) {
+  document.getElementById('syncModalTitle').textContent = title;
+  document.getElementById('syncModalContent').innerHTML = content;
+  document.getElementById('syncProgress').style.display = showProgress ? 'block' : 'none';
+  document.getElementById('syncModal').style.display = 'flex';
+}
+
+function updateProgress(percent) {
+  document.getElementById('progressBar').style.width = percent + '%';
+  document.getElementById('progressText').textContent = Math.round(percent) + '%';
+}
+
+function closeSyncModal() {
+  document.getElementById('syncModal').style.display = 'none';
+}
+
+function showError(message, details = '') {
+  const errorHtml = `
+    <div class="error-box">
+      <strong>❌ خطا:</strong> ${message}
+      ${details ? `<hr style="margin:5px 0"><small>${details}</small>` : ''}
+    </div>
+  `;
+  
+  const errorContainer = document.getElementById('errorContainer');
+  if (errorContainer) {
+    errorContainer.innerHTML = errorHtml;
+    setTimeout(() => {
+      errorContainer.innerHTML = '';
+    }, 10000);
+  }
+  
+  return errorHtml;
+}
+
+function showSuccess(message) {
+  const successHtml = `
+    <div class="success-box">
+      <strong>✅ موفقیت:</strong> ${message}
+    </div>
+  `;
+  
+  const errorContainer = document.getElementById('errorContainer');
+  if (errorContainer) {
+    errorContainer.innerHTML = successHtml;
+    setTimeout(() => {
+      errorContainer.innerHTML = '';
+    }, 5000);
+  }
+  
+  return successHtml;
+}
+
+function addToSyncLog(type, message, details = '') {
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    type: type,
+    message: message,
+    details: details,
+    user: currentUser?.email || 'unknown'
+  };
+  
+  syncLog.unshift(logEntry);
+  if (syncLog.length > 100) syncLog = syncLog.slice(0, 100);
+  
+  localStorage.setItem('sync_log', JSON.stringify(syncLog));
+  return logEntry;
+}
+
+function viewSyncLog() {
+  document.getElementById('syncLogModal').style.display = 'flex';
+  renderSyncLog();
+}
+
+function closeSyncLogModal() {
+  document.getElementById('syncLogModal').style.display = 'none';
+}
+
+function clearSyncLog() {
+  if (confirm('آیا مطمئن هستید می‌خواهید تاریخچه همگام‌سازی را پاک کنید؟')) {
+    syncLog = [];
+    localStorage.removeItem('sync_log');
+    renderSyncLog();
+  }
+}
+
+function renderSyncLog() {
+  const container = document.getElementById('syncLogContent');
+  
+  if (syncLog.length === 0) {
+    container.innerHTML = '<div class="info-box" style="text-align:center;">تاریخچه‌ای وجود ندارد</div>';
+    return;
+  }
+  
+  let html = '<div style="max-height:400px; overflow:auto;">';
+  
+  syncLog.forEach((log, index) => {
+    const date = new Date(log.timestamp).toLocaleString('fa-IR');
+    const badgeColor = {
+      'success': 'green',
+      'error': 'red',
+      'warning': 'orange',
+      'info': 'blue'
+    }[log.type] || 'gray';
+    
+    html += `
+      <div style="border-bottom:1px solid #eee; padding:10px 0; ${index === 0 ? 'border-top:1px solid #eee;' : ''}">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:12px; color:#666;">${date}</span>
+          <span style="background:${badgeColor}; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">
+            ${log.type === 'success' ? '✅' : log.type === 'error' ? '❌' : log.type === 'warning' ? '⚠️' : 'ℹ️'} ${log.type}
+          </span>
+        </div>
+        <div style="margin-top:5px;"><strong>${log.message}</strong></div>
+        ${log.details ? `<div style="margin-top:5px; font-size:11px; color:#666; background:#f5f5f5; padding:5px; border-radius:4px;">${log.details}</div>` : ''}
+        <div style="margin-top:5px; font-size:11px; color:#999;">کاربر: ${log.user}</div>
+      </div>
+    `;
+  });
+  
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ==================== مدیریت اتصال ====================
+async function initSupabase() {
+  try {
+    console.log('در حال ایجاد اتصال به Supabase...');
+    
+    // ایجاد کلاینت Supabase با تنظیمات صحیح
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storage: window.localStorage,
+        autoRefreshToken: true,
+        persistSession: true
+      }
+    });
+    
+    // بررسی اینکه آیا در URL پارامترهای بازگشت از تایید ایمیل وجود دارد
+    console.log('بررسی URL برای پارامترهای بازگشت...');
+    console.log('Hash:', window.location.hash);
+    console.log('Search:', window.location.search);
+    
+    // پردازش بازگشت از تایید ایمیل (اگر در URL باشد)
+    if (window.location.hash.includes('access_token') || 
+        window.location.hash.includes('type=recovery') ||
+        window.location.search.includes('access_token')) {
+      
+      console.log('پارامترهای بازگشت از احراز هویت شناسایی شد');
+      
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('خطا در پردازش بازگشت:', error);
+        } else if (data.session) {
+          console.log('Session بازیابی شد:', data.session.user.email);
+          currentUser = data.session.user;
+          
+          // پاک کردن پارامترهای URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+          
+          // نمایش موفقیت
+          showSyncModal('ایمیل تأیید شد', `
+            <div class="success-box" style="text-align:right;">
+              <strong>✅ ایمیل شما با موفقیت تأیید شد!</strong><br>
+              <small>خوش آمدید ${data.session.user.email}</small><br>
+              <small>شما به طور خودکار وارد شدید.</small>
+            </div>
+          `);
+          
+          // بارگذاری برنامه اصلی
+          showUserInfo(data.session.user);
+          await loadMainApp();
+          return true;
+        }
+      } catch (e) {
+        console.error('خطا در پردازش بازگشت از تایید ایمیل:', e);
+      }
+    }
+    
+    // تست اتصال ساده
+    const { data: sessionData } = await supabase.auth.getSession();
+    
+    if (sessionData.session) {
+      console.log('کاربر از قبل لاگین کرده:', sessionData.session.user.email);
+      currentUser = sessionData.session.user;
+    }
+    
+    isOnline = true;
+    updateConnectionStatus('متصل به سرور', 'success');
+    addToSyncLog('success', 'اتصال به Supabase برقرار شد');
+    
+    console.log('اتصال به Supabase با موفقیت برقرار شد');
+    return true;
+    
+  } catch (error) {
+    console.error('خطا در اتصال به Supabase:', error);
+    isOnline = false;
+    updateConnectionStatus('حالت آفلاین', 'warning');
+    addToSyncLog('warning', 'اتصال به سرور برقرار نیست', error.message);
+    
+    // بررسی session از localStorage برای کار آفلاین
+    try {
+      const sessionStr = localStorage.getItem(`sb-${SUPABASE_URL.replace('https://', '').split('.')[0]}-auth-token`);
+      if (sessionStr) {
+        const session = JSON.parse(sessionStr);
+        if (session?.currentSession?.user) {
+          console.log('کاربر از localStorage پیدا شد:', session.currentSession.user.email);
+          currentUser = session.currentSession.user;
+          showUserInfo(session.currentSession.user);
+        }
+      }
+    } catch (e) {
+      console.warn('خطا در خواندن session از localStorage:', e.message);
+    }
+    
+    return false;
+  }
+}
+
+function updateConnectionStatus(message, type = 'info') {
+  const statusEl = document.getElementById('syncStatus');
+  const badgeEl = document.getElementById('connectionBadge');
+  
+  if (statusEl) {
+    statusEl.textContent = message;
+    const colors = {
+      success: 'green',
+      error: 'red',
+      warning: 'orange',
+      info: 'blue'
+    };
+    statusEl.style.color = colors[type] || 'black';
+  }
+  
+  if (badgeEl) {
+    badgeEl.textContent = isOnline ? '● آنلاین' : '● آفلاین';
+    badgeEl.style.background = isOnline ? '#d4edda' : '#fff3cd';
+    badgeEl.style.color = isOnline ? '#155724' : '#856404';
+  }
+  
+  // فعال/غیرفعال کردن دکمه‌های همگام‌سازی
+  const syncUpBtn = document.getElementById('syncUpBtn');
+  const syncDownBtn = document.getElementById('syncDownBtn');
+  
+  if (syncUpBtn && syncDownBtn) {
+    syncUpBtn.disabled = !isOnline;
+    syncDownBtn.disabled = !isOnline;
+  }
+}
+
+// ==================== مدیریت احراز هویت ====================
+async function checkAuthStatus() {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    if (error) {
+      console.log('خطا در getUser:', error.message);
+      return false;
+    }
+    
+    if (user) {
+      console.log('کاربر پیدا شد:', user.email);
+      currentUser = user;
+      showUserInfo(user);
+      return true;
+    } else {
+      console.log('هیچ کاربری لاگین نکرده است');
+      currentUser = null;
+      return false;
+    }
+  } catch (error) {
+    console.error('خطا در بررسی وضعیت احراز هویت:', error);
+    return false;
+  }
+}
+
+function showUserInfo(user) {
+  const userEmailEl = document.getElementById('currentUserEmail');
+  if (userEmailEl) userEmailEl.textContent = user.email;
+  
+  const loginScreen = document.getElementById('loginScreen');
+  const mainApp = document.getElementById('mainApp');
+  
+  if (loginScreen) loginScreen.classList.add('hidden');
+  if (mainApp) mainApp.classList.remove('hidden');
+  
+  // بارگذاری برنامه اصلی
+  loadMainApp();
+}
+
+function showLoginScreen() {
+  const loginScreen = document.getElementById('loginScreen');
+  const mainApp = document.getElementById('mainApp');
+  
+  if (loginScreen) loginScreen.classList.remove('hidden');
+  if (mainApp) mainApp.classList.add('hidden');
+}
+
+async function loadMainApp() {
+  try {
+    await loadUsers(); 
+    await loadProductsToSelect(); 
+    await renderList(); 
+    await calcBalance(); 
+    await renderCharts();
+  } catch (error) {
+    console.error('خطا در بارگذاری برنامه اصلی:', error);
+  }
+}
+
+// ==================== ثبت‌نام و ورود با مدیریت Redirect ====================
+async function handleSignUp() {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const errorEl = document.getElementById('loginError');
+  
+  if (!email || !password) {
+    errorEl.textContent = 'لطفا ایمیل و رمز عبور را وارد کنید';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  
+  if (password.length < 6) {
+    errorEl.textContent = 'رمز عبور باید حداقل ۶ کاراکتر باشد';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  
+  try {
+    errorEl.classList.add('hidden');
+    showSyncModal('در حال ثبت‌نام', 'لطفا صبر کنید...', true);
+    updateProgress(30);
+    
+    console.log('در حال ثبت‌نام کاربر:', email);
+    
+    // دریافت آدرس فعلی برای redirect
+    const currentUrl = window.location.origin + window.location.pathname;
+    console.log('آدرس بازگشت:', currentUrl);
+    
+    // ثبت‌نام در Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
+      email: email,
+      password: password,
+      options: {
+        data: {
+          full_name: email.split('@')[0],
+          created_at: new Date().toISOString()
+        },
+        emailRedirectTo: currentUrl // استفاده از آدرس فعلی
+      }
+    });
+    
+    updateProgress(70);
+    
+    if (error) {
+      console.error('خطای ثبت‌نام:', error);
+      
+      if (error.message.includes('already registered')) {
+        throw new Error('این ایمیل قبلاً ثبت‌نام کرده است');
+      } else if (error.message.includes('invalid email')) {
+        throw new Error('ایمیل وارد شده معتبر نیست');
+      } else if (error.message.includes('rate limit')) {
+        throw new Error('تعداد درخواست‌ها زیاد است. لطفاً کمی صبر کنید');
+      } else {
+        throw error;
+      }
+    }
+    
+    console.log('پاسخ ثبت‌نام:', data);
+    
+    updateProgress(100);
+    
+    if (data.user) {
+      addToSyncLog('info', 'ثبت‌نام جدید', `ایمیل: ${email}`);
+      
+      // بررسی آیا کاربر نیاز به تایید ایمیل دارد یا نه
+      if (data.session) {
+        // اگر session برگردانده شد، یعنی ایمیل تأیید نیاز نیست
+        currentUser = data.user;
+        showUserInfo(data.user);
+        
+        closeSyncModal();
+        showSyncModal('ثبت‌نام موفق', `
+          <div class="success-box" style="text-align:right;">
+            <strong>✅ ثبت‌نام موفقیت‌آمیز بود!</strong><br>
+            <small>خوش آمدید ${email}</small><br>
+            <small>شما به طور خودکار وارد شدید.</small>
+          </div>
+        `);
+      } else {
+        // نیاز به تایید ایمیل
+        closeSyncModal();
+        showSyncModal('لطفا ایمیل خود را تایید کنید', `
+          <div class="info-box" style="text-align:right;">
+            <strong>📧 ایمیل تایید ارسال شد!</strong><br>
+            <small>لطفا صندوق ایمیل <strong>${email}</strong> را بررسی کنید.</small><br>
+            <small>روی لینک تایید کلیک کنید تا وارد سیستم شوید.</small><br><br>
+            <small style="color:#666;">اگر ایمیلی دریافت نکردید:</small><br>
+            <small>1. پوشه Spam را بررسی کنید</small><br>
+            <small>2. دقایقی دیگر مجددا تلاش کنید</small>
+          </div>
+        `);
+      }
+      
+      // پاک کردن فیلدها
+      document.getElementById('authEmail').value = '';
+      document.getElementById('authPassword').value = '';
+      
+    } else {
+      throw new Error('خطا در ایجاد کاربر');
+    }
+    
+  } catch (error) {
+    console.error('خطا در ثبت‌نام:', error);
+    errorEl.textContent = `خطا در ثبت‌نام: ${error.message}`;
+    errorEl.classList.remove('hidden');
+    addToSyncLog('error', 'خطا در ثبت‌نام', error.message);
+    closeSyncModal();
+  }
+}
+
+async function handleSignIn() {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const errorEl = document.getElementById('loginError');
+  
+  if (!email || !password) {
+    errorEl.textContent = 'لطفا ایمیل و رمز عبور را وارد کنید';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  
+  try {
+    errorEl.classList.add('hidden');
+    showSyncModal('در حال ورود', 'لطفا صبر کنید...', true);
+    updateProgress(30);
+    
+    console.log('در حال ورود کاربر:', email);
+    
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password
+    });
+    
+    updateProgress(70);
+    
+    if (error) {
+      console.error('خطای ورود:', error);
+      
+      if (error.message.includes('Invalid login credentials')) {
+        throw new Error('ایمیل یا رمز عبور اشتباه است');
+      } else if (error.message.includes('Email not confirmed')) {
+        throw new Error('لطفا ابتدا ایمیل خود را تایید کنید');
+      } else if (error.message.includes('rate limit')) {
+        throw new Error('تعداد درخواست‌ها زیاد است. لطفاً کمی صبر کنید');
+      } else {
+        throw error;
+      }
+    }
+    
+    console.log('پاسخ ورود:', data);
+    
+    updateProgress(100);
+    
+    currentUser = data.user;
+    showUserInfo(data.user);
+    
+    // پاک کردن فیلدها
+    document.getElementById('authEmail').value = '';
+    document.getElementById('authPassword').value = '';
+    
+    closeSyncModal();
+    
+    // بررسی اتصال
+    await checkConnection(false);
+    
+    addToSyncLog('success', 'ورود موفق', `کاربر: ${email}`);
+    showSyncModal('ورود موفق', `
+      <div class="success-box" style="text-align:right;">
+        <strong>✅ با موفقیت وارد شدید!</strong><br>
+        <small>خوش آمدید ${email}</small>
+      </div>
+    `);
+    
+  } catch (error) {
+    console.error('خطا در ورود:', error);
+    errorEl.textContent = `خطا در ورود: ${error.message}`;
+    errorEl.classList.remove('hidden');
+    addToSyncLog('error', 'خطا در ورود', error.message);
+    closeSyncModal();
+  }
+}
+
+async function handleSignOut() {
+  try {
+    const { error } = await supabase.auth.signOut();
+    
+    if (error) {
+      addToSyncLog('error', 'خطا در خروج', error.message);
+      throw error;
+    }
+    
+    currentUser = null;
+    addToSyncLog('info', 'خروج از سیستم', `کاربر خارج شد`);
+    
+    // برگشت به صفحه لاگین
+    showLoginScreen();
+    
+    showSyncModal('خروج موفق', `
+      <div class="info-box" style="text-align:right;">
+        <strong>با موفقیت خارج شدید.</strong><br>
+        <small>برای استفاده مجدد از سیستم، دوباره وارد شوید.</small>
+      </div>
+    `);
+    
+  } catch (error) {
+    console.error('خطا در خروج:', error);
+    showSyncModal('خطا در خروج', `
+      <div class="error-box">
+        <strong>خطا در خروج:</strong> ${error.message}
+      </div>
+    `);
+    addToSyncLog('error', 'خطا در خروج', error.message);
+  }
+}
+
+// ==================== راه‌اندازی اولیه برنامه ====================
+async function initApp() {
+  try {
+    console.log('شروع برنامه...');
+    
+    // 1. نمایش صفحه لاگین ابتدا
+    showLoginScreen();
+    
+    // 2. ایجاد اتصال Supabase
+    console.log('در حال اتصال به Supabase...');
+    await initSupabase();
+    
+    // 3. بررسی وضعیت کاربر (اگر از قبل لاگین کرده)
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (user) {
+      console.log('کاربر از قبل لاگین کرده:', user.email);
+      currentUser = user;
+      showUserInfo(user);
+    }
+    
+  } catch (error) {
+    console.error('خطا در مقداردهی اولیه برنامه:', error);
+    addToSyncLog('error', 'خطا در مقداردهی اولیه برنامه', error.message);
+    
+    // نمایش پیام خطا به کاربر
+    showSyncModal('خطا در راه‌اندازی', `
+      <div class="warning-box" style="text-align:right;">
+        <strong>⚠️ خطا در اتصال به سرور:</strong><br>
+        <small>${error.message}</small><br><br>
+        <small>برنامه در حالت آفلاین ادامه می‌دهد.</small><br>
+        <small>می‌توانید با حساب کاربری قبلی کار کنید.</small>
+      </div>
+    `);
+  }
+}
+
+// ==================== توابع همگام‌سازی ====================
+async function syncLocalToSupabase() {
+  if (!currentUser) {
+    showSyncModal('خطا', `
+      <div class="error-box">
+        <strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.
+      </div>
+    `);
+    return;
+  }
+  
+  if (!isOnline) {
+    showSyncModal('خطا', `
+      <div class="error-box">
+        <strong>خطا:</strong> اتصال اینترنت برقرار نیست.
+      </div>
+    `);
+    return;
+  }
+  
+  try {
+    showSyncModal('همگام‌سازی', 'در حال آپلود داده‌ها به سرور...', true);
+    updateProgress(10);
+    
+    // 1. خواندن داده‌های محلی
+    const localRecords = await getAllRecords();
+    const localUsers = await getAllUsers();
+    const localProducts = await getAllProducts();
+    
+    updateProgress(30);
+    
+    let syncedCount = 0;
+    let errorCount = 0;
+    let errors = [];
+    
+    // 2. همگام‌سازی کاربران
+    updateProgress(40);
+    for (const user of localUsers) {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .upsert({ name: user.name }, { onConflict: 'name' });
+        
+        if (error) {
+          errorCount++;
+          errors.push(`کاربر "${user.name}": ${error.message}`);
+          console.error('خطا در همگام‌سازی کاربر:', error);
+          addToSyncLog('error', `خطا در همگام‌سازی کاربر`, `${user.name}: ${error.message}`);
+          continue;
+        }
+        
+        syncedCount++;
+      } catch (e) {
+        errorCount++;
+        errors.push(`کاربر "${user.name}": ${e.message}`);
+        console.error('خطا در همگام‌سازی کاربر:', e);
+        addToSyncLog('error', `خطا در همگام‌سازی کاربر`, `${user.name}: ${e.message}`);
+      }
+    }
+    
+    // 3. همگام‌سازی کالاها
+    updateProgress(60);
+    for (const product of localProducts) {
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .upsert({ name: product.name }, { onConflict: 'name' });
+        
+        if (error) {
+          errorCount++;
+          errors.push(`کالا "${product.name}": ${error.message}`);
+          console.error('خطا در همگام‌سازی کالا:', error);
+          addToSyncLog('error', `خطا در همگام‌سازی کالا`, `${product.name}: ${error.message}`);
+          continue;
+        }
+        
+        syncedCount++;
+      } catch (e) {
+        errorCount++;
+        errors.push(`کالا "${product.name}": ${e.message}`);
+        console.error('خطا در همگام‌سازی کالا:', e);
+        addToSyncLog('error', `خطا در همگام‌سازی کالا`, `${product.name}: ${e.message}`);
+      }
+    }
+    
+    // 4. همگام‌سازی رکوردها
+    updateProgress(80);
+    for (const record of localRecords) {
+      try {
+        // حذف id برای جلوگیری از تداخل
+        const { id, ...recordData } = record;
+        
+        const { data, error } = await supabase
+          .from('records')
+          .upsert(recordData, { onConflict: 'id' });
+        
+        if (error) {
+          errorCount++;
+          errors.push(`رکورد #${record.id || '?'}: ${error.message}`);
+          console.error('خطا در همگام‌سازی رکورد:', error);
+          addToSyncLog('error', `خطا در همگام‌سازی رکورد`, `رکورد #${record.id}: ${error.message}`);
+          continue;
+        }
+        
+        syncedCount++;
+        
+        // علامت زدن به عنوان همگام‌شده در IndexedDB
+        record.synced = true;
+        await updateRecordInDb(record.id, record);
+        
+      } catch (e) {
+        errorCount++;
+        errors.push(`رکورد #${record.id || '?'}: ${e.message}`);
+        console.error('خطا در همگام‌سازی رکورد:', e);
+        addToSyncLog('error', `خطا در همگام‌سازی رکورد`, `رکورد #${record.id}: ${e.message}`);
+      }
+    }
+    
+    updateProgress(100);
+    
+    // نمایش نتیجه
+    const errorsHtml = errors.length > 0 ? `
+      <div class="error-box" style="margin-top:10px; max-height:150px; overflow:auto;">
+        <strong>خطاهای جزئی (${errors.length} مورد):</strong>
+        <ul style="margin:5px 0; padding-right:20px;">
+          ${errors.slice(0, 5).map(err => `<li>${err}</li>`).join('')}
+          ${errors.length > 5 ? `<li>و ${errors.length - 5} خطای دیگر...</li>` : ''}
+        </ul>
+      </div>
+    ` : '';
+    
+    const message = `
+      <div style="text-align: right; line-height: 1.8;">
+        <div><strong>نتایج همگام‌سازی:</strong></div>
+        <div class="${syncedCount > 0 ? 'success-box' : 'warning-box'}" style="margin:10px 0;">
+          ✅ ${syncedCount} آیتم با موفقیت همگام‌سازی شد
+        </div>
+        ${errorCount > 0 ? `
+          <div class="warning-box" style="margin:10px 0;">
+            ⚠️ ${errorCount} خطا در همگام‌سازی
+          </div>
+        ` : ''}
+        ${errorsHtml}
+        <div style="margin-top: 10px; font-size: 12px; color: #666;">
+          داده‌ها اکنون در سرور ذخیره شده‌اند و از هر دستگاهی قابل دسترسی هستند.
+        </div>
+      </div>
+    `;
+    
+    addToSyncLog('success', 'همگام‌سازی کامل', `${syncedCount} آیتم همگام شد، ${errorCount} خطا`);
+    showSyncModal('همگام‌سازی کامل', message);
+    
+  } catch (error) {
+    console.error('خطای کلی در همگام‌سازی:', error);
+    const errorHtml = `
+      <div class="error-box">
+        <strong>خطای کلی در همگام‌سازی:</strong> ${error.message}<br>
+        <hr style="margin:5px 0">
+        <small>خطا: ${error.toString()}</small>
+      </div>
+    `;
+    addToSyncLog('error', 'خطای کلی در همگام‌سازی', error.message);
+    showSyncModal('خطا در همگام‌سازی', errorHtml);
+  }
+}
+
+async function loadDataFromSupabase() {
+  if (!currentUser) {
+    showSyncModal('خطا', `
+      <div class="error-box">
+        <strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.
+      </div>
+    `);
+    return;
+  }
+  
+  if (!isOnline) {
+    showSyncModal('خطا', `
+      <div class="error-box">
+        <strong>خطا:</strong> اتصال اینترنت برقرار نیست.
+      </div>
+    `);
+    return;
+  }
+  
+  try {
+    showSyncModal('دریافت داده', 'در حال دریافت داده‌ها از سرور...', true);
+    updateProgress(10);
+    
+    // 1. دریافت داده‌ها از Supabase
+    updateProgress(30);
+    const [recordsResponse, usersResponse, productsResponse] = await Promise.allSettled([
+      supabase.from('records').select('*').order('created_at', { ascending: false }),
+      supabase.from('users').select('*'),
+      supabase.from('products').select('*')
+    ]);
+    
+    updateProgress(60);
+    
+    // بررسی خطاها
+    const errors = [];
+    let records = [], users = [], products = [];
+    
+    if (recordsResponse.status === 'fulfilled' && !recordsResponse.value.error) {
+      records = recordsResponse.value.data || [];
+    } else if (recordsResponse.status === 'rejected') {
+      errors.push(`رکوردها: ${recordsResponse.reason.message}`);
+    } else if (recordsResponse.value.error) {
+      errors.push(`رکوردها: ${recordsResponse.value.error.message}`);
+    }
+    
+    if (usersResponse.status === 'fulfilled' && !usersResponse.value.error) {
+      users = usersResponse.value.data || [];
+    } else if (usersResponse.status === 'rejected') {
+      errors.push(`کاربران: ${usersResponse.reason.message}`);
+    } else if (usersResponse.value.error) {
+      errors.push(`کاربران: ${usersResponse.value.error.message}`);
+    }
+    
+    if (productsResponse.status === 'fulfilled' && !productsResponse.value.error) {
+      products = productsResponse.value.data || [];
+    } else if (productsResponse.status === 'rejected') {
+      errors.push(`کالاها: ${productsResponse.reason.message}`);
+    } else if (productsResponse.value.error) {
+      errors.push(`کالاها: ${productsResponse.value.error.message}`);
+    }
+    
+    // 2. پاک کردن داده‌های محلی
+    updateProgress(70);
+    await clearStore();
+    
+    // 3. ذخیره داده‌های جدید در IndexedDB
+    updateProgress(80);
+    for (const record of records) {
+      await addRecordToDb({ ...record, synced: true });
+    }
+    
+    for (const user of users) {
+      await addUser(user.name);
+    }
+    
+    for (const product of products) {
+      await addProduct(product.name);
+    }
+    
+    updateProgress(90);
+    
+    // 4. بارگذاری مجدد UI
+    await loadUsers();
+    await loadProductsToSelect();
+    await renderList();
+    await calcBalance();
+    await renderCharts();
+    
+    updateProgress(100);
+    
+    // نمایش نتیجه
+    const errorsHtml = errors.length > 0 ? `
+      <div class="warning-box" style="margin-top:10px;">
+        <strong>خطاهای جزئی:</strong><br>
+        ${errors.map(err => `• ${err}`).join('<br>')}
+      </div>
+    ` : '';
+    
+    const message = `
+      <div style="text-align: right; line-height: 1.8;">
+        <div><strong>داده‌ها با موفقیت دریافت شدند:</strong></div>
+        <div class="success-box" style="margin:10px 0;">
+          📊 ${records.length} رکورد دریافت شد<br>
+          👥 ${users.length} کاربر دریافت شد<br>
+          📦 ${products.length} کالا دریافت شد
+        </div>
+        ${errorsHtml}
+        <div style="margin-top: 10px; font-size: 12px; color: #666;">
+          داده‌های سرور اکنون در دستگاه شما ذخیره شده‌اند.
+        </div>
+      </div>
+    `;
+    
+    addToSyncLog('success', 'دریافت داده از سرور', `${records.length} رکورد، ${users.length} کاربر، ${products.length} کالا`);
+    showSyncModal('دریافت کامل', message);
+    
+  } catch (error) {
+    console.error('خطا در دریافت داده‌ها:', error);
+    const errorHtml = `
+      <div class="error-box">
+        <strong>خطا در دریافت داده‌ها:</strong> ${error.message}<br>
+        <hr style="margin:5px 0">
+        <small>${error.toString()}</small>
+      </div>
+    `;
+    addToSyncLog('error', 'خطا در دریافت داده از سرور', error.message);
+    showSyncModal('خطا در دریافت', errorHtml);
+  }
+}
+
+// ==================== IndexedDB Setup ====================
+const DB_NAME='anbar_db_secured_v1';
+let db=null;
+
+async function openDb(){
+  return new Promise((res,rej)=>{
+    const rq=indexedDB.open(DB_NAME,6);
+    rq.onupgradeneeded=e=>{
+      db=e.target.result;
+      if(!db.objectStoreNames.contains('records')){
+        const st=db.createObjectStore('records',{keyPath:'id',autoIncrement:true});
+        st.createIndex('product','product',{unique:false});
+        st.createIndex('synced','synced',{unique:false});
+      }
+      if(!db.objectStoreNames.contains('users')) db.createObjectStore('users',{keyPath:'id',autoIncrement:true});
+      if(!db.objectStoreNames.contains('products')) db.createObjectStore('products',{keyPath:'id',autoIncrement:true});
+    };
+    rq.onsuccess=e=>{ db=e.target.result; res(db); };
+    rq.onerror=e=>rej(e);
+  });
+}
+
+async function addRecordToDb(r){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(['records'],'readwrite'); 
+    const st=tx.objectStore('records'); 
+    r.date_iso=new Date().toISOString(); 
+    r.synced = r.synced || false;
+    r.user_id = currentUser?.id;
+    st.add(r); 
+    tx.oncomplete=()=>res(true); 
+    tx.onerror=e=>rej(e);
+  });
+}
+
+async function updateRecordInDb(id, r){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(['records'],'readwrite'); 
+    const st=tx.objectStore('records'); 
+    r.id = id;
+    r.date_iso = r.date_iso || new Date().toISOString();
+    st.put(r); 
+    tx.oncomplete=()=>res(true); 
+    tx.onerror=e=>rej(e);
+  });
+}
+
+async function getAllRecords(){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('records','readonly'); 
+    const st=tx.objectStore('records'); 
+    const all=st.getAll(); 
+    all.onsuccess=()=>{
+      const userRecords = (all.result||[]).filter(r => !r.user_id || r.user_id === currentUser?.id);
+      res(userRecords);
+    }; 
+    all.onerror=e=>rej(e);
+  });
+}
+
+async function clearStore(){
+  await openDb(); 
+  return new Promise(r=>{
+    const tx=db.transaction(['records', 'users', 'products'],'readwrite'); 
+    tx.objectStore('records').clear(); 
+    tx.objectStore('users').clear(); 
+    tx.objectStore('products').clear(); 
+    tx.oncomplete=r;
+  });
+}
+
+async function addUser(name){
+  if(!name) return; 
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('users','readwrite'); 
+    tx.objectStore('users').add({name, user_id: currentUser?.id}); 
+    tx.oncomplete=()=>res(true); 
+    tx.onerror=e=>rej(e);
+  });
+}
+
+async function getAllUsers(){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('users','readonly'); 
+    const st=tx.objectStore('users'); 
+    st.getAll().onsuccess=e=>{
+      const userUsers = (e.target.result||[]).filter(u => !u.user_id || u.user_id === currentUser?.id);
+      res(userUsers);
+    }; 
+    st.getAll().onerror=e=>rej(e);
+  });
+}
+
+async function updateUser(id, name){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('users','readwrite'); 
+    tx.objectStore('users').put({id, name, user_id: currentUser?.id}); 
+    tx.oncomplete=()=>res(true); 
+    tx.onerror=e=>rej(e);
+  });
+}
+
+async function deleteUser(id){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('users','readwrite'); 
+    tx.objectStore('users').delete(id); 
+    tx.oncomplete=()=>res(true); 
+    tx.onerror=e=>rej(e);
+  });
+}
+
+async function addProduct(name){
+  if(!name) return; 
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('products','readwrite'); 
+    tx.objectStore('products').add({name, user_id: currentUser?.id}); 
+    tx.oncomplete=()=>res(true); 
+    tx.onerror=e=>rej(e);
+  });
+}
+
+async function getAllProducts(){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('products','readonly'); 
+    tx.objectStore('products').getAll().onsuccess=e=>{
+      const userProducts = (e.target.result||[]).filter(p => !p.user_id || p.user_id === currentUser?.id);
+      res(userProducts);
+    }; 
+    tx.objectStore('products').getAll().onerror=e=>rej(e);
+  });
+}
+
+async function updateProduct(id, name){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('products','readwrite'); 
+    tx.objectStore('products').put({id, name, user_id: currentUser?.id}); 
+    tx.oncomplete=()=>res(true); 
+    tx.onerror=e=>rej(e);
+  });
+}
+
+async function deleteProduct(id){
+  await openDb(); 
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('products','readwrite'); 
+    tx.objectStore('products').delete(id); 
+    tx.oncomplete=()=>res(true); 
+    tx.onerror=e=>rej(e);
+  });
+}
+
+// ==================== توابع اصلی برنامه ====================
+let editingId=null;
+function clearForm(){
+  ['date_sh','product_select','serial','amount','company','deliverer','receiver','employer_rep','description'].forEach(id=>{
+    document.getElementById(id).value='';
+  });
+}
+
+function cancelEdit(){
+  editingId=null; 
+  document.getElementById('saveBtn').textContent='ثبت نهایی اطلاعات'; 
+  document.getElementById('cancelEditBtn').style.display='none'; 
+  clearForm();
+}
+
+async function saveRecord(){
+  if (!currentUser) {
+    showSyncModal('خطا', `
+      <div class="error-box">
+        <strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.
+      </div>
+    `);
+    return;
+  }
+  
+  const rec={
+    date_sh:document.getElementById('date_sh').value||'',
+    registerer:document.getElementById('registerer').value||'',
+    operation:document.getElementById('operation').value,
+    product:document.getElementById('product_select').value||'',
+    serial:document.getElementById('serial').value||'',
+    amount:parseFloat(document.getElementById('amount').value||'0')||0,
+    company:document.getElementById('company').value||'',
+    deliverer:document.getElementById('deliverer').value||'',
+    receiver:document.getElementById('receiver').value||'',
+    employer_rep:document.getElementById('employer_rep').value||'',
+    description:document.getElementById('description').value||'',
+    synced: false
+  };
+  
+  if(!rec.product || !rec.amount || !rec.operation){
+    showSyncModal('خطا', `
+      <div class="error-box">
+        <strong>خطا:</strong> فیلد کالا، تعداد و عملیات الزامی هستند.
+      </div>
+    `);
+    return;
+  }
+  
+  try {
+    if(editingId){ 
+      await updateRecordInDb(editingId,rec); 
+      addToSyncLog('info', 'ویرایش رکورد', `رکورد #${editingId} ویرایش شد`);
+      editingId=null; 
+      document.getElementById('saveBtn').textContent='ثبت نهایی اطلاعات'; 
+      document.getElementById('cancelEditBtn').style.display='none'; 
+      showSuccess('ویرایش ذخیره شد');
+    } else { 
+      await addRecordToDb(rec); 
+      addToSyncLog('info', 'ثبت رکورد جدید', `رکورد جدید ثبت شد`);
+      showSuccess('رکورد جدید ثبت شد');
+    }
+    
+    clearForm(); 
+    renderList(); 
+    calcBalance(); 
+    renderCharts();
+    
+  } catch (error) {
+    console.error('خطا در ذخیره:', error);
+    showSyncModal('خطا', `
+      <div class="error-box">
+        <strong>خطا در ذخیره اطلاعات:</strong> ${error.message}
+      </div>
+    `);
+    addToSyncLog('error', 'خطا در ذخیره رکورد', error.message);
+  }
+}
+
+async function renderList(){
+  try {
+    const all=await getAllRecords();
+    const search=document.getElementById('search').value.toLowerCase();
+    const opFilter=document.getElementById('filter_op').value;
+    const compFilter=document.getElementById('filter_comp').value.toLowerCase();
+    
+    let data=all.filter(r=>
+      (!opFilter||opFilter==='همه'||r.operation===opFilter) &&
+      (!compFilter||(r.company && r.company.toLowerCase().includes(compFilter))) &&
+      (!search||
+        (r.product && r.product.toLowerCase().includes(search)) ||
+        (r.serial && r.serial.toLowerCase().includes(search)))
+    );
+    
+    const thRow=document.getElementById('thead_row'); 
+    thRow.innerHTML=''; 
+    
+    const cols=['ID','تاریخ','ثبت‌کننده','کالا','عملیات','تعداد','سریال','شرکت','تحویل‌دهنده','تحویل‌گیرنده','نماینده','توضیحات','عملیات'];
+    cols.forEach(c=>{
+      const th=document.createElement('th'); 
+      th.textContent=c; 
+      thRow.appendChild(th);
+    });
+    
+    const tbody=document.getElementById('records_body'); 
+    tbody.innerHTML='';
+    
+    data.forEach(r=>{
+      const tr=document.createElement('tr');
+      
+      const fields = ['id','date_sh','registerer','product','operation','amount','serial','company','deliverer','receiver','employer_rep','description'];
+      fields.forEach(f=>{
+        const td=document.createElement('td'); 
+        td.textContent=r[f]||''; 
+        
+        if (f === 'id' && r.synced === false) {
+          td.style.color = 'orange';
+          td.title = 'هنوز همگام‌سازی نشده';
+        }
+        
+        tr.appendChild(td);
+      });
+      
+      const td=document.createElement('td'); 
+      
+      const btnEdit=document.createElement('button'); 
+      btnEdit.textContent='ویرایش'; 
+      btnEdit.onclick=()=>editRecord(r);
+      btnEdit.style.marginLeft = '5px';
+      
+      const btnDel=document.createElement('button'); 
+      btnDel.textContent='حذف'; 
+      btnDel.className='danger'; 
+      btnDel.onclick=async()=>{
+        if(confirm('آیا مطمئن هستید می‌خواهید این رکورد را حذف کنید؟')){
+          try {
+            const tx=db.transaction(['records'],'readwrite');
+            tx.objectStore('records').delete(r.id);
+            tx.oncomplete=()=>{
+              renderList(); 
+              calcBalance(); 
+              renderCharts();
+              showSuccess('رکورد حذف شد');
+            };
+          } catch (error) {
+            showError('خطا در حذف رکورد', error.message);
+          }
+        }
+      };
+      
+      td.appendChild(btnEdit); 
+      td.appendChild(btnDel); 
+      tr.appendChild(td);
+      
+      tbody.appendChild(tr);
+    });
+  } catch (error) {
+    console.error('خطا در نمایش لیست:', error);
+    showError('خطا در بارگذاری لیست', error.message);
+  }
+}
+
+function editRecord(r){
+  editingId=r.id;
+  
+  const fields = {
+    'date_sh': r.date_sh || '',
+    'registerer': r.registerer || '',
+    'operation': r.operation || '',
+    'product_select': r.product || '',
+    'serial': r.serial || '',
+    'amount': r.amount || '',
+    'company': r.company || '',
+    'deliverer': r.deliverer || '',
+    'receiver': r.receiver || '',
+    'employer_rep': r.employer_rep || '',
+    'description': r.description || ''
+  };
+  
+  Object.keys(fields).forEach(fieldId => {
+    const element = document.getElementById(fieldId);
+    if (element) {
+      element.value = fields[fieldId];
+      
+      // برای select، option را انتخاب کن
+      if (fieldId === 'registerer' || fieldId === 'product_select' || fieldId === 'operation') {
+        for (let option of element.options) {
+          if (option.value === fields[fieldId]) {
+            option.selected = true;
+            break;
+          }
+        }
+      }
+    }
+  });
+  
+  document.getElementById('saveBtn').textContent='ذخیره ویرایش';
+  document.getElementById('cancelEditBtn').style.display='inline-block';
+}
+
+async function loadUsers(){
+  try {
+    const all=await getAllUsers(); 
+    const sel=document.getElementById('registerer'); 
+    sel.innerHTML='<option value="">-- انتخاب کنید --</option>';
+    
+    all.forEach(u=>{
+      const op=document.createElement('option'); 
+      op.value=u.name; 
+      op.textContent=u.name; 
+      sel.appendChild(op);
+    });
+    
+    const div=document.getElementById('user_controls'); 
+    div.innerHTML=''; 
+    
+    all.forEach(u=>{
+      const d=document.createElement('div'); 
+      d.className='manage-item';
+      
+      const inp=document.createElement('input'); 
+      inp.value=u.name; 
+      inp.onchange=()=>updateUser(u.id,inp.value);
+      
+      const btn=document.createElement('button'); 
+      btn.textContent='حذف'; 
+      btn.className='danger'; 
+      btn.onclick=()=>{
+        if(confirm('آیا مطمئن هستید می‌خواهید این کاربر را حذف کنید؟')) {
+          deleteUser(u.id).then(loadUsers);
+        }
+      };
+      
+      d.appendChild(inp); 
+      d.appendChild(btn); 
+      div.appendChild(d);
+    });
+  } catch (error) {
+    console.error('خطا در بارگذاری کاربران:', error);
+    showError('خطا در بارگذاری کاربران', error.message);
+  }
+}
+
+async function addUserFromInput(){
+  const v=document.getElementById('new_user_input').value.trim(); 
+  if(v){
+    try {
+      await addUser(v); 
+      document.getElementById('new_user_input').value=''; 
+      loadUsers();
+      showSuccess('کاربر جدید اضافه شد');
+    } catch (error) {
+      showError('خطا در اضافه کردن کاربر', error.message);
+    }
+  }
+}
+
+async function loadProductsToSelect(){
+  try {
+    const all=await getAllProducts(); 
+    const sel=document.getElementById('product_select'); 
+    sel.innerHTML='<option value="">-- انتخاب کنید --</option>';
+    
+    all.forEach(p=>{
+      const op=document.createElement('option'); 
+      op.value=p.name; 
+      op.textContent=p.name; 
+      sel.appendChild(op);
+    });
+    
+    const div=document.getElementById('product_controls'); 
+    div.innerHTML=''; 
+    
+    all.forEach(p=>{
+      const d=document.createElement('div'); 
+      d.className='manage-item';
+      
+      const inp=document.createElement('input'); 
+      inp.value=p.name; 
+      inp.onchange=()=>updateProduct(p.id,inp.value).then(loadProductsToSelect);
+      
+      const btn=document.createElement('button'); 
+      btn.textContent='حذف'; 
+      btn.className='danger'; 
+      btn.onclick=()=>{
+        if(confirm('آیا مطمئن هستید می‌خواهید این کالا را حذف کنید؟')) {
+          deleteProduct(p.id).then(loadProductsToSelect);
+        }
+      };
+      
+      d.appendChild(inp); 
+      d.appendChild(btn); 
+      div.appendChild(d);
+    });
+  } catch (error) {
+    console.error('خطا در بارگذاری کالاها:', error);
+    showError('خطا در بارگذاری کالاها', error.message);
+  }
+}
+
+async function addProductFromModal(){
+  const v=document.getElementById('newProductModal').value.trim(); 
+  if(v){
+    try {
+      await addProduct(v); 
+      document.getElementById('newProductModal').value=''; 
+      renderProductModal(); 
+      loadProductsToSelect();
+      showSuccess('کالای جدید اضافه شد');
+    } catch (error) {
+      showError('خطا در اضافه کردن کالا', error.message);
+    }
+  }
+}
+
+function openProductsPanel(){
+  document.getElementById('productModal').style.display='flex'; 
+  renderProductModal();
+}
+
+function closeProductModal(){
+  document.getElementById('productModal').style.display='none';
+}
+
+async function renderProductModal(){
+  try {
+    const all=await getAllProducts(); 
+    const div=document.getElementById('productListModal'); 
+    div.innerHTML=''; 
+    
+    all.forEach(p=>{
+      const d=document.createElement('div'); 
+      d.className='manage-item';
+      
+      const inp=document.createElement('input'); 
+      inp.value=p.name; 
+      inp.style.width='60%'; 
+      inp.onchange=()=>updateProduct(p.id,inp.value).then(renderProductModal).then(loadProductsToSelect);
+      
+      const del=document.createElement('button'); 
+      del.textContent='حذف'; 
+      del.className='danger'; 
+      del.style.marginLeft='6px'; 
+      del.onclick=()=>{
+        if(confirm('آیا مطمئن هستید می‌خواهید این کالا را حذف کنید؟')){
+          deleteProduct(p.id).then(renderProductModal).then(loadProductsToSelect);
+        }
+      };
+      
+      d.appendChild(inp); 
+      d.appendChild(del); 
+      div.appendChild(d);
+    });
+  } catch (error) {
+    console.error('خطا در نمایش لیست کالاها:', error);
+  }
+}
+
+async function exportJSON(){
+  try {
+    const data=await getAllRecords(); 
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); 
+    const url=URL.createObjectURL(blob); 
+    const a=document.createElement('a'); 
+    a.href=url; 
+    a.download='backup_anbar_' + new Date().toISOString().slice(0,10) + '.json'; 
+    a.click();
+    addToSyncLog('info', 'خروجی JSON', `${data.length} رکورد ذخیره شد`);
+    showSuccess('فایل JSON ذخیره شد');
+  } catch (error) {
+    showError('خطا در خروجی JSON', error.message);
+  }
+}
+
+async function importJSON(){
+  const inp=document.createElement('input'); 
+  inp.type='file'; 
+  inp.accept='.json'; 
+  inp.onchange=async e=>{
+    const file=e.target.files[0]; 
+    try {
+      const text=await file.text(); 
+      const data=JSON.parse(text); 
+      
+      showSyncModal('در حال بارگذاری', 'در حال وارد کردن داده‌ها...', true);
+      updateProgress(0);
+      
+      const total = data.length;
+      for(let i = 0; i < data.length; i++) {
+        const r = data[i];
+        await addRecordToDb(r); 
+        updateProgress((i + 1) / total * 100);
+      }
+      
+      updateProgress(100);
+      addToSyncLog('info', 'ورودی JSON', `${total} رکورد وارد شد`);
+      showSyncModal('موفقیت', `
+        <div class="success-box">
+          <strong>${total} رکورد با موفقیت وارد شدند.</strong>
+        </div>
+      `);
+      
+      renderList(); 
+      calcBalance(); 
+      renderCharts();
+    } catch (error) {
+      showSyncModal('خطا', `
+        <div class="error-box">
+          <strong>خطا در وارد کردن فایل:</strong> ${error.message}
+        </div>
+      `);
+    }
+  }; 
+  inp.click();
+}
+
+async function exportXLSX(){
+  try {
+    const data=await getAllRecords(); 
+    const ws=XLSX.utils.json_to_sheet(data); 
+    const wb=XLSX.utils.book_new(); 
+    XLSX.utils.book_append_sheet(wb,ws,"Records"); 
+    XLSX.writeFile(wb,"records_" + new Date().toISOString().slice(0,10) + ".xlsx");
+    addToSyncLog('info', 'خروجی Excel', `${data.length} رکورد ذخیره شد`);
+    showSuccess('فایل Excel ذخیره شد');
+  } catch (error) {
+    showError('خطا در خروجی Excel', error.message);
+  }
+}
+
+async function exportPDF(){
+  try {
+    const { jsPDF } = window.jspdf; 
+    const doc = new jsPDF(); 
+    const data=await getAllRecords(); 
+    
+    doc.setFontSize(16);
+    doc.text('گزارش سیستم انبار', 105, 10, { align: 'center' });
+    doc.setFontSize(10);
+    
+    let y=20;
+    data.forEach((r, index)=>{
+      doc.text(`${index+1}. ${r.date_sh || ''} | ${r.product || ''} | ${r.operation || ''} | ${r.amount || ''} | ${r.serial || ''}`, 10, y);
+      y+=6;
+      if(y>280){
+        doc.addPage(); 
+        y=10;
+      }
+    }); 
+    
+    doc.save('records_' + new Date().toISOString().slice(0,10) + '.pdf');
+    addToSyncLog('info', 'خروجی PDF', `${data.length} رکورد ذخیره شد`);
+    showSuccess('فایل PDF ذخیره شد');
+  } catch (error) {
+    showError('خطا در خروجی PDF', error.message);
+  }
+}
+
+function clearFilters(){
+  document.getElementById('search').value=''; 
+  document.getElementById('filter_op').value='همه'; 
+  document.getElementById('filter_comp').value=''; 
+  renderList();
+}
+
+async function calcBalance(){
+  try {
+    const all=await getAllRecords(); 
+    let total=0; 
+    all.forEach(r=>{
+      if(r.operation==='ورود کالا' || r.operation==='تحویل از تعمیرگاه' || r.operation==='تعمیر شده') {
+        total+=r.amount;
+      } else {
+        total-=r.amount;
+      }
+    }); 
+    
+    document.getElementById('total_parts').textContent=total.toString();
+    
+    // اگر مقدار منفی شد، با رنگ قرمز نشان بده
+    if (total < 0) {
+      document.getElementById('total_parts').style.color = 'red';
+    } else {
+      document.getElementById('total_parts').style.color = 'green';
+    }
+  } catch (error) {
+    console.error('خطا در محاسبه تراز:', error);
+    showError('خطا در محاسبه تراز', error.message);
+  }
+}
+
+let pieChart=null, barChart=null;
+async function renderCharts(){
+  try {
+    const all=await getAllRecords();
+    
+    // نمودار شرکت‌ها
+    const companies={}; 
+    all.forEach(r=>{
+      if(r.company && r.company.trim() !== ''){
+        companies[r.company]=(companies[r.company]||0)+r.amount;
+      }
+    });
+    
+    const topCompanies=Object.entries(companies).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const ctx=document.getElementById('companyPie').getContext('2d');
+    
+    if(pieChart) pieChart.destroy();
+    
+    if (topCompanies.length > 0) {
+      pieChart=new Chart(ctx,{
+        type:'pie',
+        data:{
+          labels:topCompanies.map(x=>x[0]),
+          datasets:[{
+            data:topCompanies.map(x=>x[1]),
+            backgroundColor:['#0b74de','#e76f51','#2a9d8f','#f4a261','#8d99ae']
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              position: 'left',
+              rtl: true
+            }
+          }
+        }
+      });
+    }
+
+    // نمودار کالاهای پرمصرف
+    const items={}; 
+    all.forEach(r=>{
+      if(r.product && r.product.trim() !== ''){
+        items[r.product]=(items[r.product]||0)+r.amount;
+      }
+    });
+    
+    const topItems=Object.entries(items).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const ctx2=document.getElementById('topItemsBar').getContext('2d');
+    
+    if(barChart) barChart.destroy();
+    
+    if (topItems.length > 0) {
+      barChart=new Chart(ctx2,{
+        type:'bar',
+        data:{
+          labels:topItems.map(x=>x[0]),
+          datasets:[{
+            label:'تعداد',
+            data:topItems.map(x=>x[1]),
+            backgroundColor:'#0b74de'
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: {
+              ticks: {
+                font: {
+                  family: 'Estedad'
+                }
+              }
+            },
+            y: {
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
+          }
+        }
+      });
+    }
+  } catch (error) {
+    console.error('خطا در نمایش نمودارها:', error);
+  }
+}
+
+async function clearAllData() {
+  if (confirm('⚠️ هشدار! آیا مطمئن هستید می‌خواهید تمام داده‌ها را پاک کنید؟ این عمل غیرقابل بازگشت است.')) {
+    if (confirm('⚠️ واقعاً مطمئن هستید؟ تمام رکوردها، کاربران و کالاها پاک خواهند شد.')) {
+      try {
+        await clearStore();
+        addToSyncLog('warning', 'پاک کردن تمام داده‌ها', 'تمام داده‌های محلی پاک شدند');
+        await loadUsers();
+        await loadProductsToSelect();
+        await renderList();
+        await calcBalance();
+        await renderCharts();
+        showSyncModal('موفقیت', `
+          <div class="success-box">
+            <strong>تمام داده‌ها با موفقیت پاک شدند.</strong>
+          </div>
+        `);
+      } catch (error) {
+        showError('خطا در پاک کردن داده‌ها', error.message);
+      }
+    }
+  }
+}
+
+// ==================== بررسی اتصال ====================
+async function checkConnection(showModal = true) {
+  if (showModal) {
+    showSyncModal('بررسی اتصال', 'در حال بررسی اتصال به سرور...', true);
+    updateProgress(50);
+  }
+  
+  try {
+    const connected = await initSupabase();
+    
+    if (showModal) {
+      updateProgress(100);
+    }
+    
+    if (connected) {
+      addToSyncLog('success', 'بررسی اتصال موفق', 'سرور در دسترس است');
+      
+      if (showModal) {
+        showSyncModal('اتصال موفق', `
+          <div class="success-box" style="text-align:right;">
+            <strong>✅ اتصال به سرور Supabase با موفقیت برقرار شد.</strong><br>
+            <small>🌐 سرور: ${SUPABASE_URL.replace('https://', '')}</small><br>
+            <small>📊 وضعیت: آنلاین</small>
+          </div>
+        `);
+      }
+      
+      showSuccess('اتصال به سرور برقرار شد');
+      return true;
+    } else {
+      addToSyncLog('warning', 'بررسی اتصال ناموفق', 'سرور در دسترس نیست');
+      
+      if (showModal) {
+        showSyncModal('اتصال ناموفق', `
+          <div class="warning-box" style="text-align:right;">
+            <strong>⚠️ اتصال به سرور برقرار نشد.</strong><br>
+            <small>🔌 در حالت آفلاین کار می‌کنید.</small><br>
+            <small>🌐 سرور: ${SUPABASE_URL.replace('https://', '')}</small>
+          </div>
+        `);
+      }
+      
+      showError('اتصال به سرور برقرار نیست');
+      return false;
+    }
+  } catch (error) {
+    console.error('خطا در بررسی اتصال:', error);
+    addToSyncLog('error', 'خطا در بررسی اتصال', error.message);
+    
+    if (showModal) {
+      showSyncModal('خطای اتصال', `
+        <div class="error-box">
+          <strong>❌ خطا در بررسی اتصال:</strong> ${error.message}<br>
+          <hr style="margin:5px 0">
+          <small>${error.toString()}</small>
+        </div>
+      `);
+    }
+    
+    return false;
+  }
+}
+
+// شروع برنامه
+document.addEventListener('DOMContentLoaded', initApp);
+</script>
+
+</body>
+</html>
