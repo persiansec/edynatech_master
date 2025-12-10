@@ -153,7 +153,9 @@ th,td{border:1px solid #f0f3f8;padding:8px;text-align:center}
     <div class="controls">
       <button onclick="syncLocalToSupabase()" id="syncUpBtn" disabled>📤 آپلود به سرور</button>
       <button onclick="loadDataFromSupabase()" id="syncDownBtn" disabled class="secondary">📥 دانلود از سرور</button>
-      <button onclick="checkConnection(true)" class="secondary">🔍 بررسی اتصال</button>
+      <button onclick="syncUsersAndProducts()" id="syncUsersBtn" disabled class="secondary">👥 آپلود کاربران/کالاها</button>
+      <button onclick="checkSupabaseTables()" class="secondary">🔍 بررسی جداول</button>
+      <button onclick="checkConnection(true)" class="secondary">🔄 بررسی اتصال</button>
       <button onclick="viewSyncLog()" class="secondary">📋 تاریخچه همگام‌سازی</button>
     </div>
     
@@ -476,52 +478,27 @@ async function initSupabase() {
   try {
     console.log('در حال ایجاد اتصال به Supabase...');
     
-    // ایجاد کلاینت Supabase با تنظیمات صحیح
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
-        storage: window.localStorage,
-        autoRefreshToken: true,
-        persistSession: true
+        storage: window.localStorage
       }
     });
     
-    // بررسی اینکه آیا در URL پارامترهای بازگشت از تایید ایمیل وجود دارد
-    console.log('بررسی URL برای پارامترهای بازگشت...');
-    console.log('Hash:', window.location.hash);
-    console.log('Search:', window.location.search);
-    
-    // پردازش بازگشت از تایید ایمیل (اگر در URL باشد)
-    if (window.location.hash.includes('access_token') || 
-        window.location.hash.includes('type=recovery') ||
-        window.location.search.includes('access_token')) {
-      
+    // پردازش بازگشت از تایید ایمیل
+    if (window.location.hash.includes('access_token') || window.location.hash.includes('type=recovery')) {
       console.log('پارامترهای بازگشت از احراز هویت شناسایی شد');
       
       try {
         const { data, error } = await supabase.auth.getSession();
-        
         if (error) {
           console.error('خطا در پردازش بازگشت:', error);
         } else if (data.session) {
           console.log('Session بازیابی شد:', data.session.user.email);
           currentUser = data.session.user;
-          
-          // پاک کردن پارامترهای URL
           window.history.replaceState({}, document.title, window.location.pathname);
-          
-          // نمایش موفقیت
-          showSyncModal('ایمیل تأیید شد', `
-            <div class="success-box" style="text-align:right;">
-              <strong>✅ ایمیل شما با موفقیت تأیید شد!</strong><br>
-              <small>خوش آمدید ${data.session.user.email}</small><br>
-              <small>شما به طور خودکار وارد شدید.</small>
-            </div>
-          `);
-          
-          // بارگذاری برنامه اصلی
           showUserInfo(data.session.user);
           await loadMainApp();
           return true;
@@ -531,9 +508,7 @@ async function initSupabase() {
       }
     }
     
-    // تست اتصال ساده
     const { data: sessionData } = await supabase.auth.getSession();
-    
     if (sessionData.session) {
       console.log('کاربر از قبل لاگین کرده:', sessionData.session.user.email);
       currentUser = sessionData.session.user;
@@ -552,7 +527,6 @@ async function initSupabase() {
     updateConnectionStatus('حالت آفلاین', 'warning');
     addToSyncLog('warning', 'اتصال به سرور برقرار نیست', error.message);
     
-    // بررسی session از localStorage برای کار آفلاین
     try {
       const sessionStr = localStorage.getItem(`sb-${SUPABASE_URL.replace('https://', '').split('.')[0]}-auth-token`);
       if (sessionStr) {
@@ -592,13 +566,14 @@ function updateConnectionStatus(message, type = 'info') {
     badgeEl.style.color = isOnline ? '#155724' : '#856404';
   }
   
-  // فعال/غیرفعال کردن دکمه‌های همگام‌سازی
   const syncUpBtn = document.getElementById('syncUpBtn');
   const syncDownBtn = document.getElementById('syncDownBtn');
+  const syncUsersBtn = document.getElementById('syncUsersBtn');
   
-  if (syncUpBtn && syncDownBtn) {
+  if (syncUpBtn && syncDownBtn && syncUsersBtn) {
     syncUpBtn.disabled = !isOnline;
     syncDownBtn.disabled = !isOnline;
+    syncUsersBtn.disabled = !isOnline;
   }
 }
 
@@ -606,12 +581,10 @@ function updateConnectionStatus(message, type = 'info') {
 async function checkAuthStatus() {
   try {
     const { data: { user }, error } = await supabase.auth.getUser();
-    
     if (error) {
       console.log('خطا در getUser:', error.message);
       return false;
     }
-    
     if (user) {
       console.log('کاربر پیدا شد:', user.email);
       currentUser = user;
@@ -638,7 +611,6 @@ function showUserInfo(user) {
   if (loginScreen) loginScreen.classList.add('hidden');
   if (mainApp) mainApp.classList.remove('hidden');
   
-  // بارگذاری برنامه اصلی
   loadMainApp();
 }
 
@@ -662,7 +634,7 @@ async function loadMainApp() {
   }
 }
 
-// ==================== ثبت‌نام و ورود با مدیریت Redirect ====================
+// ==================== ثبت‌نام و ورود ====================
 async function handleSignUp() {
   const email = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value;
@@ -687,11 +659,8 @@ async function handleSignUp() {
     
     console.log('در حال ثبت‌نام کاربر:', email);
     
-    // دریافت آدرس فعلی برای redirect
     const currentUrl = window.location.origin + window.location.pathname;
-    console.log('آدرس بازگشت:', currentUrl);
     
-    // ثبت‌نام در Supabase Auth
     const { data, error } = await supabase.auth.signUp({
       email: email,
       password: password,
@@ -700,15 +669,13 @@ async function handleSignUp() {
           full_name: email.split('@')[0],
           created_at: new Date().toISOString()
         },
-        emailRedirectTo: currentUrl // استفاده از آدرس فعلی
+        emailRedirectTo: currentUrl
       }
     });
     
     updateProgress(70);
     
     if (error) {
-      console.error('خطای ثبت‌نام:', error);
-      
       if (error.message.includes('already registered')) {
         throw new Error('این ایمیل قبلاً ثبت‌نام کرده است');
       } else if (error.message.includes('invalid email')) {
@@ -721,18 +688,14 @@ async function handleSignUp() {
     }
     
     console.log('پاسخ ثبت‌نام:', data);
-    
     updateProgress(100);
     
     if (data.user) {
       addToSyncLog('info', 'ثبت‌نام جدید', `ایمیل: ${email}`);
       
-      // بررسی آیا کاربر نیاز به تایید ایمیل دارد یا نه
       if (data.session) {
-        // اگر session برگردانده شد، یعنی ایمیل تأیید نیاز نیست
         currentUser = data.user;
         showUserInfo(data.user);
-        
         closeSyncModal();
         showSyncModal('ثبت‌نام موفق', `
           <div class="success-box" style="text-align:right;">
@@ -742,24 +705,18 @@ async function handleSignUp() {
           </div>
         `);
       } else {
-        // نیاز به تایید ایمیل
         closeSyncModal();
         showSyncModal('لطفا ایمیل خود را تایید کنید', `
           <div class="info-box" style="text-align:right;">
             <strong>📧 ایمیل تایید ارسال شد!</strong><br>
             <small>لطفا صندوق ایمیل <strong>${email}</strong> را بررسی کنید.</small><br>
-            <small>روی لینک تایید کلیک کنید تا وارد سیستم شوید.</small><br><br>
-            <small style="color:#666;">اگر ایمیلی دریافت نکردید:</small><br>
-            <small>1. پوشه Spam را بررسی کنید</small><br>
-            <small>2. دقایقی دیگر مجددا تلاش کنید</small>
+            <small>روی لینک تایید کلیک کنید تا وارد سیستم شوید.</small>
           </div>
         `);
       }
       
-      // پاک کردن فیلدها
       document.getElementById('authEmail').value = '';
       document.getElementById('authPassword').value = '';
-      
     } else {
       throw new Error('خطا در ایجاد کاربر');
     }
@@ -799,8 +756,6 @@ async function handleSignIn() {
     updateProgress(70);
     
     if (error) {
-      console.error('خطای ورود:', error);
-      
       if (error.message.includes('Invalid login credentials')) {
         throw new Error('ایمیل یا رمز عبور اشتباه است');
       } else if (error.message.includes('Email not confirmed')) {
@@ -813,19 +768,15 @@ async function handleSignIn() {
     }
     
     console.log('پاسخ ورود:', data);
-    
     updateProgress(100);
     
     currentUser = data.user;
     showUserInfo(data.user);
     
-    // پاک کردن فیلدها
     document.getElementById('authEmail').value = '';
     document.getElementById('authPassword').value = '';
     
     closeSyncModal();
-    
-    // بررسی اتصال
     await checkConnection(false);
     
     addToSyncLog('success', 'ورود موفق', `کاربر: ${email}`);
@@ -857,7 +808,6 @@ async function handleSignOut() {
     currentUser = null;
     addToSyncLog('info', 'خروج از سیستم', `کاربر خارج شد`);
     
-    // برگشت به صفحه لاگین
     showLoginScreen();
     
     showSyncModal('خروج موفق', `
@@ -882,15 +832,11 @@ async function handleSignOut() {
 async function initApp() {
   try {
     console.log('شروع برنامه...');
-    
-    // 1. نمایش صفحه لاگین ابتدا
     showLoginScreen();
     
-    // 2. ایجاد اتصال Supabase
     console.log('در حال اتصال به Supabase...');
     await initSupabase();
     
-    // 3. بررسی وضعیت کاربر (اگر از قبل لاگین کرده)
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
@@ -903,35 +849,25 @@ async function initApp() {
     console.error('خطا در مقداردهی اولیه برنامه:', error);
     addToSyncLog('error', 'خطا در مقداردهی اولیه برنامه', error.message);
     
-    // نمایش پیام خطا به کاربر
     showSyncModal('خطا در راه‌اندازی', `
       <div class="warning-box" style="text-align:right;">
         <strong>⚠️ خطا در اتصال به سرور:</strong><br>
         <small>${error.message}</small><br><br>
-        <small>برنامه در حالت آفلاین ادامه می‌دهد.</small><br>
-        <small>می‌توانید با حساب کاربری قبلی کار کنید.</small>
+        <small>برنامه در حالت آفلاین ادامه می‌دهد.</small>
       </div>
     `);
   }
 }
 
-// ==================== توابع همگام‌سازی ====================
+// ==================== توابع همگام‌سازی اصلاح شده ====================
 async function syncLocalToSupabase() {
   if (!currentUser) {
-    showSyncModal('خطا', `
-      <div class="error-box">
-        <strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.
-      </div>
-    `);
+    showSyncModal('خطا', `<div class="error-box"><strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.</div>`);
     return;
   }
   
   if (!isOnline) {
-    showSyncModal('خطا', `
-      <div class="error-box">
-        <strong>خطا:</strong> اتصال اینترنت برقرار نیست.
-      </div>
-    `);
+    showSyncModal('خطا', `<div class="error-box"><strong>خطا:</strong> اتصال اینترنت برقرار نیست.</div>`);
     return;
   }
   
@@ -939,164 +875,223 @@ async function syncLocalToSupabase() {
     showSyncModal('همگام‌سازی', 'در حال آپلود داده‌ها به سرور...', true);
     updateProgress(10);
     
-    // 1. خواندن داده‌های محلی
     const localRecords = await getAllRecords();
-    const localUsers = await getAllUsers();
-    const localProducts = await getAllProducts();
     
     updateProgress(30);
     
-    let syncedCount = 0;
+    let successCount = 0;
     let errorCount = 0;
     let errors = [];
     
-    // 2. همگام‌سازی کاربران
-    updateProgress(40);
-    for (const user of localUsers) {
+    // روش ساده: هر بار فقط یک رکورد INSERT کن
+    for (let i = 0; i < localRecords.length; i++) {
+      const record = localRecords[i];
+      
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .upsert({ name: user.name }, { onConflict: 'name' });
+        // فقط فیلدهای اصلی را ارسال کن
+        const recordData = {
+          date_sh: record.date_sh || '',
+          registerer: record.registerer || '',
+          operation: record.operation || '',
+          product: record.product || '',
+          serial: record.serial || '',
+          amount: record.amount || 0,
+          company: record.company || '',
+          deliverer: record.deliverer || '',
+          receiver: record.receiver || '',
+          employer_rep: record.employer_rep || '',
+          description: record.description || '',
+          user_id: currentUser.id,
+          created_at: record.date_iso || new Date().toISOString()
+        };
         
-        if (error) {
-          errorCount++;
-          errors.push(`کاربر "${user.name}": ${error.message}`);
-          console.error('خطا در همگام‌سازی کاربر:', error);
-          addToSyncLog('error', `خطا در همگام‌سازی کاربر`, `${user.name}: ${error.message}`);
-          continue;
-        }
-        
-        syncedCount++;
-      } catch (e) {
-        errorCount++;
-        errors.push(`کاربر "${user.name}": ${e.message}`);
-        console.error('خطا در همگام‌سازی کاربر:', e);
-        addToSyncLog('error', `خطا در همگام‌سازی کاربر`, `${user.name}: ${e.message}`);
-      }
-    }
-    
-    // 3. همگام‌سازی کالاها
-    updateProgress(60);
-    for (const product of localProducts) {
-      try {
-        const { data, error } = await supabase
-          .from('products')
-          .upsert({ name: product.name }, { onConflict: 'name' });
-        
-        if (error) {
-          errorCount++;
-          errors.push(`کالا "${product.name}": ${error.message}`);
-          console.error('خطا در همگام‌سازی کالا:', error);
-          addToSyncLog('error', `خطا در همگام‌سازی کالا`, `${product.name}: ${error.message}`);
-          continue;
-        }
-        
-        syncedCount++;
-      } catch (e) {
-        errorCount++;
-        errors.push(`کالا "${product.name}": ${e.message}`);
-        console.error('خطا در همگام‌سازی کالا:', e);
-        addToSyncLog('error', `خطا در همگام‌سازی کالا`, `${product.name}: ${e.message}`);
-      }
-    }
-    
-    // 4. همگام‌سازی رکوردها
-    updateProgress(80);
-    for (const record of localRecords) {
-      try {
-        // حذف id برای جلوگیری از تداخل
-        const { id, ...recordData } = record;
-        
+        // از INSERT ساده استفاده کن (بدون upsert)
         const { data, error } = await supabase
           .from('records')
-          .upsert(recordData, { onConflict: 'id' });
+          .insert(recordData);
         
         if (error) {
-          errorCount++;
-          errors.push(`رکورد #${record.id || '?'}: ${error.message}`);
-          console.error('خطا در همگام‌سازی رکورد:', error);
-          addToSyncLog('error', `خطا در همگام‌سازی رکورد`, `رکورد #${record.id}: ${error.message}`);
-          continue;
+          throw error;
         }
         
-        syncedCount++;
+        successCount++;
         
-        // علامت زدن به عنوان همگام‌شده در IndexedDB
+        // علامت بزن که همگام شده
         record.synced = true;
         await updateRecordInDb(record.id, record);
         
-      } catch (e) {
+      } catch (error) {
         errorCount++;
-        errors.push(`رکورد #${record.id || '?'}: ${e.message}`);
-        console.error('خطا در همگام‌سازی رکورد:', e);
-        addToSyncLog('error', `خطا در همگام‌سازی رکورد`, `رکورد #${record.id}: ${e.message}`);
+        errors.push(`رکورد ${i+1}: ${error.message}`);
       }
+      
+      // بروزرسانی progress bar
+      updateProgress(30 + ((i + 1) / localRecords.length * 70));
     }
     
     updateProgress(100);
     
     // نمایش نتیجه
-    const errorsHtml = errors.length > 0 ? `
-      <div class="error-box" style="margin-top:10px; max-height:150px; overflow:auto;">
-        <strong>خطاهای جزئی (${errors.length} مورد):</strong>
-        <ul style="margin:5px 0; padding-right:20px;">
-          ${errors.slice(0, 5).map(err => `<li>${err}</li>`).join('')}
-          ${errors.length > 5 ? `<li>و ${errors.length - 5} خطای دیگر...</li>` : ''}
-        </ul>
-      </div>
-    ` : '';
-    
-    const message = `
-      <div style="text-align: right; line-height: 1.8;">
-        <div><strong>نتایج همگام‌سازی:</strong></div>
-        <div class="${syncedCount > 0 ? 'success-box' : 'warning-box'}" style="margin:10px 0;">
-          ✅ ${syncedCount} آیتم با موفقیت همگام‌سازی شد
+    let message = `
+      <div style="text-align: right;">
+        <div class="${successCount > 0 ? 'success-box' : 'warning-box'}">
+          <strong>${successCount} رکورد با موفقیت آپلود شد</strong>
         </div>
-        ${errorCount > 0 ? `
-          <div class="warning-box" style="margin:10px 0;">
-            ⚠️ ${errorCount} خطا در همگام‌سازی
-          </div>
-        ` : ''}
-        ${errorsHtml}
-        <div style="margin-top: 10px; font-size: 12px; color: #666;">
-          داده‌ها اکنون در سرور ذخیره شده‌اند و از هر دستگاهی قابل دسترسی هستند.
-        </div>
-      </div>
     `;
     
-    addToSyncLog('success', 'همگام‌سازی کامل', `${syncedCount} آیتم همگام شد، ${errorCount} خطا`);
+    if (errorCount > 0) {
+      message += `
+        <div class="warning-box" style="margin-top:10px;">
+          <strong>${errorCount} خطا رخ داد</strong>
+          <div style="max-height:100px; overflow:auto; font-size:11px; margin-top:5px;">
+            ${errors.slice(0, 3).map(e => `• ${e}`).join('<br>')}
+            ${errors.length > 3 ? `<br>و ${errors.length - 3} خطای دیگر...` : ''}
+          </div>
+        </div>
+      `;
+    }
+    
+    message += `
+      <div style="margin-top:15px; font-size:12px; color:#666;">
+        <strong>خلاصه:</strong><br>
+        • کل رکوردهای محلی: ${localRecords.length}<br>
+        • آپلود موفق: ${successCount}<br>
+        • خطا: ${errorCount}
+      </div>
+    </div>`;
+    
     showSyncModal('همگام‌سازی کامل', message);
+    addToSyncLog('success', 'همگام‌سازی رکوردها', `${successCount} رکورد آپلود شد`);
     
   } catch (error) {
-    console.error('خطای کلی در همگام‌سازی:', error);
-    const errorHtml = `
+    console.error('خطای کلی:', error);
+    showSyncModal('خطا', `
       <div class="error-box">
-        <strong>خطای کلی در همگام‌سازی:</strong> ${error.message}<br>
-        <hr style="margin:5px 0">
-        <small>خطا: ${error.toString()}</small>
+        <strong>خطای کلی:</strong> ${error.message}
       </div>
-    `;
-    addToSyncLog('error', 'خطای کلی در همگام‌سازی', error.message);
-    showSyncModal('خطا در همگام‌سازی', errorHtml);
+    `);
+    addToSyncLog('error', 'خطای کلی همگام‌سازی', error.message);
+  }
+}
+
+async function syncUsersAndProducts() {
+  try {
+    showSyncModal('همگام‌سازی کاربران و کالاها', 'در حال آماده‌سازی...', true);
+    
+    const localUsers = await getAllUsers();
+    const localProducts = await getAllProducts();
+    
+    let results = '';
+    let successCount = 0;
+    
+    // همگام‌سازی کاربران
+    if (localUsers.length > 0) {
+      for (const user of localUsers) {
+        try {
+          const { error } = await supabase
+            .from('users')
+            .insert({ name: user.name, user_id: currentUser.id });
+          
+          if (!error) {
+            results += `✅ کاربر "${user.name}" اضافه شد<br>`;
+            successCount++;
+          }
+        } catch (e) {
+          results += `⚠️ کاربر "${user.name}": ${e.message}<br>`;
+        }
+      }
+    }
+    
+    // همگام‌سازی کالاها
+    if (localProducts.length > 0) {
+      for (const product of localProducts) {
+        try {
+          const { error } = await supabase
+            .from('products')
+            .insert({ name: product.name, user_id: currentUser.id });
+          
+          if (!error) {
+            results += `✅ کالا "${product.name}" اضافه شد<br>`;
+            successCount++;
+          }
+        } catch (e) {
+          results += `⚠️ کالا "${product.name}": ${e.message}<br>`;
+        }
+      }
+    }
+    
+    showSyncModal('نتیجه', `
+      <div style="text-align: right; max-height:300px; overflow:auto;">
+        <div class="success-box">
+          <strong>${successCount} آیتم همگام‌سازی شد</strong>
+        </div>
+        <div style="margin-top:10px; font-size:13px;">
+          ${results || 'هیچ داده‌ای برای همگام‌سازی وجود نداشت'}
+        </div>
+      </div>
+    `);
+    
+    addToSyncLog('success', 'همگام‌سازی کاربران و کالاها', `${successCount} آیتم آپلود شد`);
+    
+  } catch (error) {
+    showSyncModal('خطا', `<div class="error-box">${error.message}</div>`);
+    addToSyncLog('error', 'خطا در همگام‌سازی کاربران و کالاها', error.message);
+  }
+}
+
+async function checkSupabaseTables() {
+  try {
+    showSyncModal('بررسی جداول', 'در حال بررسی ساختار دیتابیس...', true);
+    
+    const tables = ['records', 'users', 'products'];
+    let results = '';
+    
+    for (const table of tables) {
+      try {
+        const { data, error } = await supabase
+          .from(table)
+          .select('count')
+          .limit(1);
+        
+        if (error) {
+          results += `❌ جدول "${table}": ${error.message}<br>`;
+        } else {
+          const { count } = await supabase
+            .from(table)
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', currentUser.id);
+          
+          results += `✅ جدول "${table}" موجود است (${count || 0} رکورد شما)<br>`;
+        }
+      } catch (e) {
+        results += `⚠️ جدول "${table}": ${e.message}<br>`;
+      }
+    }
+    
+    showSyncModal('نتایج بررسی', `
+      <div style="text-align: right; max-height:400px; overflow:auto;">
+        <div class="info-box">
+          <strong>وضعیت جداول Supabase</strong>
+        </div>
+        <div style="margin-top:10px; font-size:13px;">
+          ${results}
+        </div>
+      </div>
+    `);
+    
+  } catch (error) {
+    showSyncModal('خطا', `<div class="error-box">خطا در بررسی جداول: ${error.message}</div>`);
   }
 }
 
 async function loadDataFromSupabase() {
   if (!currentUser) {
-    showSyncModal('خطا', `
-      <div class="error-box">
-        <strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.
-      </div>
-    `);
+    showSyncModal('خطا', `<div class="error-box"><strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.</div>`);
     return;
   }
   
   if (!isOnline) {
-    showSyncModal('خطا', `
-      <div class="error-box">
-        <strong>خطا:</strong> اتصال اینترنت برقرار نیست.
-      </div>
-    `);
+    showSyncModal('خطا', `<div class="error-box"><strong>خطا:</strong> اتصال اینترنت برقرار نیست.</div>`);
     return;
   }
   
@@ -1104,17 +1099,15 @@ async function loadDataFromSupabase() {
     showSyncModal('دریافت داده', 'در حال دریافت داده‌ها از سرور...', true);
     updateProgress(10);
     
-    // 1. دریافت داده‌ها از Supabase
     updateProgress(30);
     const [recordsResponse, usersResponse, productsResponse] = await Promise.allSettled([
-      supabase.from('records').select('*').order('created_at', { ascending: false }),
-      supabase.from('users').select('*'),
-      supabase.from('products').select('*')
+      supabase.from('records').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
+      supabase.from('users').select('*').eq('user_id', currentUser.id),
+      supabase.from('products').select('*').eq('user_id', currentUser.id)
     ]);
     
     updateProgress(60);
     
-    // بررسی خطاها
     const errors = [];
     let records = [], users = [], products = [];
     
@@ -1142,11 +1135,9 @@ async function loadDataFromSupabase() {
       errors.push(`کالاها: ${productsResponse.value.error.message}`);
     }
     
-    // 2. پاک کردن داده‌های محلی
     updateProgress(70);
     await clearStore();
     
-    // 3. ذخیره داده‌های جدید در IndexedDB
     updateProgress(80);
     for (const record of records) {
       await addRecordToDb({ ...record, synced: true });
@@ -1161,8 +1152,6 @@ async function loadDataFromSupabase() {
     }
     
     updateProgress(90);
-    
-    // 4. بارگذاری مجدد UI
     await loadUsers();
     await loadProductsToSelect();
     await renderList();
@@ -1171,7 +1160,6 @@ async function loadDataFromSupabase() {
     
     updateProgress(100);
     
-    // نمایش نتیجه
     const errorsHtml = errors.length > 0 ? `
       <div class="warning-box" style="margin-top:10px;">
         <strong>خطاهای جزئی:</strong><br>
@@ -1188,9 +1176,6 @@ async function loadDataFromSupabase() {
           📦 ${products.length} کالا دریافت شد
         </div>
         ${errorsHtml}
-        <div style="margin-top: 10px; font-size: 12px; color: #666;">
-          داده‌های سرور اکنون در دستگاه شما ذخیره شده‌اند.
-        </div>
       </div>
     `;
     
@@ -1201,9 +1186,7 @@ async function loadDataFromSupabase() {
     console.error('خطا در دریافت داده‌ها:', error);
     const errorHtml = `
       <div class="error-box">
-        <strong>خطا در دریافت داده‌ها:</strong> ${error.message}<br>
-        <hr style="margin:5px 0">
-        <small>${error.toString()}</small>
+        <strong>خطا در دریافت داده‌ها:</strong> ${error.message}
       </div>
     `;
     addToSyncLog('error', 'خطا در دریافت داده از سرور', error.message);
@@ -1217,7 +1200,7 @@ let db=null;
 
 async function openDb(){
   return new Promise((res,rej)=>{
-    const rq=indexedDB.open(DB_NAME,6);
+    const rq=indexedDB.open(DB_NAME,7);
     rq.onupgradeneeded=e=>{
       db=e.target.result;
       if(!db.objectStoreNames.contains('records')){
@@ -1389,11 +1372,7 @@ function cancelEdit(){
 
 async function saveRecord(){
   if (!currentUser) {
-    showSyncModal('خطا', `
-      <div class="error-box">
-        <strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.
-      </div>
-    `);
+    showSyncModal('خطا', `<div class="error-box"><strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.</div>`);
     return;
   }
   
@@ -1413,11 +1392,7 @@ async function saveRecord(){
   };
   
   if(!rec.product || !rec.amount || !rec.operation){
-    showSyncModal('خطا', `
-      <div class="error-box">
-        <strong>خطا:</strong> فیلد کالا، تعداد و عملیات الزامی هستند.
-      </div>
-    `);
+    showSyncModal('خطا', `<div class="error-box"><strong>خطا:</strong> فیلد کالا، تعداد و عملیات الزامی هستند.</div>`);
     return;
   }
   
@@ -1442,11 +1417,7 @@ async function saveRecord(){
     
   } catch (error) {
     console.error('خطا در ذخیره:', error);
-    showSyncModal('خطا', `
-      <div class="error-box">
-        <strong>خطا در ذخیره اطلاعات:</strong> ${error.message}
-      </div>
-    `);
+    showSyncModal('خطا', `<div class="error-box"><strong>خطا در ذخیره اطلاعات:</strong> ${error.message}</div>`);
     addToSyncLog('error', 'خطا در ذخیره رکورد', error.message);
   }
 }
@@ -1556,7 +1527,6 @@ function editRecord(r){
     if (element) {
       element.value = fields[fieldId];
       
-      // برای select، option را انتخاب کن
       if (fieldId === 'registerer' || fieldId === 'product_select' || fieldId === 'operation') {
         for (let option of element.options) {
           if (option.value === fields[fieldId]) {
@@ -1768,21 +1738,13 @@ async function importJSON(){
       
       updateProgress(100);
       addToSyncLog('info', 'ورودی JSON', `${total} رکورد وارد شد`);
-      showSyncModal('موفقیت', `
-        <div class="success-box">
-          <strong>${total} رکورد با موفقیت وارد شدند.</strong>
-        </div>
-      `);
+      showSyncModal('موفقیت', `<div class="success-box"><strong>${total} رکورد با موفقیت وارد شدند.</strong></div>`);
       
       renderList(); 
       calcBalance(); 
       renderCharts();
     } catch (error) {
-      showSyncModal('خطا', `
-        <div class="error-box">
-          <strong>خطا در وارد کردن فایل:</strong> ${error.message}
-        </div>
-      `);
+      showSyncModal('خطا', `<div class="error-box"><strong>خطا در وارد کردن فایل:</strong> ${error.message}</div>`);
     }
   }; 
   inp.click();
@@ -1851,7 +1813,6 @@ async function calcBalance(){
     
     document.getElementById('total_parts').textContent=total.toString();
     
-    // اگر مقدار منفی شد، با رنگ قرمز نشان بده
     if (total < 0) {
       document.getElementById('total_parts').style.color = 'red';
     } else {
@@ -1868,7 +1829,6 @@ async function renderCharts(){
   try {
     const all=await getAllRecords();
     
-    // نمودار شرکت‌ها
     const companies={}; 
     all.forEach(r=>{
       if(r.company && r.company.trim() !== ''){
@@ -1903,7 +1863,6 @@ async function renderCharts(){
       });
     }
 
-    // نمودار کالاهای پرمصرف
     const items={}; 
     all.forEach(r=>{
       if(r.product && r.product.trim() !== ''){
@@ -1965,11 +1924,7 @@ async function clearAllData() {
         await renderList();
         await calcBalance();
         await renderCharts();
-        showSyncModal('موفقیت', `
-          <div class="success-box">
-            <strong>تمام داده‌ها با موفقیت پاک شدند.</strong>
-          </div>
-        `);
+        showSyncModal('موفقیت', `<div class="success-box"><strong>تمام داده‌ها با موفقیت پاک شدند.</strong></div>`);
       } catch (error) {
         showError('خطا در پاک کردن داده‌ها', error.message);
       }
