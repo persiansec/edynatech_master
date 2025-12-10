@@ -859,7 +859,7 @@ async function initApp() {
   }
 }
 
-// ==================== توابع همگام‌سازی اصلاح شده ====================
+// ==================== توابع همگام‌سازی اصلاح شده برای تطابق با Supabase ====================
 async function syncLocalToSupabase() {
   if (!currentUser) {
     showSyncModal('خطا', `<div class="error-box"><strong>خطا:</strong> لطفا ابتدا وارد حساب کاربری خود شوید.</div>`);
@@ -883,12 +883,14 @@ async function syncLocalToSupabase() {
     let errorCount = 0;
     let errors = [];
     
-    // روش ساده: هر بار فقط یک رکورد INSERT کن
-    for (let i = 0; i < localRecords.length; i++) {
-      const record = localRecords[i];
+    // روش تطبیق یافته: فقط رکوردهای همگام‌سازی نشده را آپلود کن
+    const unsyncedRecords = localRecords.filter(r => !r.synced);
+    
+    for (let i = 0; i < unsyncedRecords.length; i++) {
+      const record = unsyncedRecords[i];
       
       try {
-        // فقط فیلدهای اصلی را ارسال کن
+        // ساختار تطبیق یافته با جدول records در Supabase
         const recordData = {
           date_sh: record.date_sh || '',
           registerer: record.registerer || '',
@@ -902,15 +904,31 @@ async function syncLocalToSupabase() {
           employer_rep: record.employer_rep || '',
           description: record.description || '',
           user_id: currentUser.id,
-          created_at: record.date_iso || new Date().toISOString()
+          created_at: record.date_iso || new Date().toISOString(),
+          // فیلدهای جدید که در Supabase وجود دارند
+          part_id: null,
+          company_id: null,
+          representative_id: null,
+          inventory_id: null
         };
         
-        // از INSERT ساده استفاده کن (بدون upsert)
+        // از upsert استفاده کن تا از duplicate جلوگیری شود
         const { data, error } = await supabase
           .from('records')
-          .insert(recordData);
+          .upsert(recordData, {
+            onConflict: 'date_sh,product,serial,user_id',
+            ignoreDuplicates: false
+          });
         
         if (error) {
+          // اگر خطای duplicate بود، فقط علامت بزن که همگام شده
+          if (error.code === '23505' || error.message.includes('duplicate')) {
+            console.log('رکورد تکراری، علامت‌گذاری به عنوان همگام‌شده:', record.id);
+            record.synced = true;
+            await updateRecordInDb(record.id, record);
+            successCount++;
+            continue;
+          }
           throw error;
         }
         
@@ -926,7 +944,7 @@ async function syncLocalToSupabase() {
       }
       
       // بروزرسانی progress bar
-      updateProgress(30 + ((i + 1) / localRecords.length * 70));
+      updateProgress(30 + ((i + 1) / unsyncedRecords.length * 70));
     }
     
     updateProgress(100);
@@ -955,6 +973,7 @@ async function syncLocalToSupabase() {
       <div style="margin-top:15px; font-size:12px; color:#666;">
         <strong>خلاصه:</strong><br>
         • کل رکوردهای محلی: ${localRecords.length}<br>
+        • رکوردهای نیازمند همگام‌سازی: ${unsyncedRecords.length}<br>
         • آپلود موفق: ${successCount}<br>
         • خطا: ${errorCount}
       </div>
@@ -968,6 +987,7 @@ async function syncLocalToSupabase() {
     showSyncModal('خطا', `
       <div class="error-box">
         <strong>خطای کلی:</strong> ${error.message}
+        ${error.details ? `<br><small>${error.details}</small>` : ''}
       </div>
     `);
     addToSyncLog('error', 'خطای کلی همگام‌سازی', error.message);
@@ -977,61 +997,101 @@ async function syncLocalToSupabase() {
 async function syncUsersAndProducts() {
   try {
     showSyncModal('همگام‌سازی کاربران و کالاها', 'در حال آماده‌سازی...', true);
+    updateProgress(10);
     
     const localUsers = await getAllUsers();
     const localProducts = await getAllProducts();
     
+    updateProgress(30);
+    
     let results = '';
     let successCount = 0;
+    let errorCount = 0;
     
-    // همگام‌سازی کاربران
+    // همگام‌سازی کاربران - با استفاده از upsert برای جلوگیری از duplicate
     if (localUsers.length > 0) {
       for (const user of localUsers) {
         try {
+          const userData = {
+            name: user.name,
+            user_id: currentUser.id
+          };
+          
+          // استفاده از upsert با ignoreDuplicates
           const { error } = await supabase
             .from('users')
-            .insert({ name: user.name, user_id: currentUser.id });
+            .upsert(userData, {
+              onConflict: 'name,user_id',
+              ignoreDuplicates: true
+            });
           
-          if (!error) {
+          if (error) {
+            // اگر خطای duplicate بود، نادیده بگیر
+            if (error.code === '23505' || error.message.includes('duplicate')) {
+              results += `⚠️ کاربر "${user.name}" از قبل وجود دارد<br>`;
+            } else {
+              throw error;
+            }
+          } else {
             results += `✅ کاربر "${user.name}" اضافه شد<br>`;
             successCount++;
           }
         } catch (e) {
-          results += `⚠️ کاربر "${user.name}": ${e.message}<br>`;
+          errorCount++;
+          results += `❌ کاربر "${user.name}": ${e.message}<br>`;
         }
       }
     }
+    
+    updateProgress(60);
     
     // همگام‌سازی کالاها
     if (localProducts.length > 0) {
       for (const product of localProducts) {
         try {
+          const productData = {
+            name: product.name,
+            user_id: currentUser.id
+          };
+          
           const { error } = await supabase
             .from('products')
-            .insert({ name: product.name, user_id: currentUser.id });
+            .upsert(productData, {
+              onConflict: 'name,user_id',
+              ignoreDuplicates: true
+            });
           
-          if (!error) {
+          if (error) {
+            if (error.code === '23505' || error.message.includes('duplicate')) {
+              results += `⚠️ کالا "${product.name}" از قبل وجود دارد<br>`;
+            } else {
+              throw error;
+            }
+          } else {
             results += `✅ کالا "${product.name}" اضافه شد<br>`;
             successCount++;
           }
         } catch (e) {
-          results += `⚠️ کالا "${product.name}": ${e.message}<br>`;
+          errorCount++;
+          results += `❌ کالا "${product.name}": ${e.message}<br>`;
         }
       }
     }
     
+    updateProgress(100);
+    
     showSyncModal('نتیجه', `
       <div style="text-align: right; max-height:300px; overflow:auto;">
-        <div class="success-box">
-          <strong>${successCount} آیتم همگام‌سازی شد</strong>
+        <div class="${successCount > 0 ? 'success-box' : 'warning-box'}">
+          <strong>${successCount} آیتم همگام‌سازی شد (${errorCount} خطا)</strong>
         </div>
-        <div style="margin-top:10px; font-size:13px;">
+        <div style="margin-top:10px; font-size:13px; max-height:200px; overflow:auto;">
           ${results || 'هیچ داده‌ای برای همگام‌سازی وجود نداشت'}
         </div>
       </div>
     `);
     
-    addToSyncLog('success', 'همگام‌سازی کاربران و کالاها', `${successCount} آیتم آپلود شد`);
+    addToSyncLog(successCount > 0 ? 'success' : 'warning', 'همگام‌سازی کاربران و کالاها', `${successCount} آیتم آپلود شد، ${errorCount} خطا`);
     
   } catch (error) {
     showSyncModal('خطا', `<div class="error-box">${error.message}</div>`);
@@ -1042,20 +1102,29 @@ async function syncUsersAndProducts() {
 async function checkSupabaseTables() {
   try {
     showSyncModal('بررسی جداول', 'در حال بررسی ساختار دیتابیس...', true);
+    updateProgress(20);
     
-    const tables = ['records', 'users', 'products'];
+    const tables = ['records', 'users', 'products', 'parts', 'inventory', 'companies', 'representatives'];
     let results = '';
     
-    for (const table of tables) {
+    for (let i = 0; i < tables.length; i++) {
+      const table = tables[i];
       try {
+        // بررسی وجود جدول
         const { data, error } = await supabase
           .from(table)
           .select('count')
           .limit(1);
         
         if (error) {
-          results += `❌ جدول "${table}": ${error.message}<br>`;
+          // اگر جدول وجود نداشته باشد
+          if (error.code === '42P01' || error.message.includes('does not exist')) {
+            results += `❌ جدول "${table}" وجود ندارد<br>`;
+          } else {
+            results += `⚠️ جدول "${table}": ${error.message}<br>`;
+          }
         } else {
+          // اگر جدول وجود دارد، تعداد رکوردهای کاربر را بگیر
           const { count } = await supabase
             .from(table)
             .select('*', { count: 'exact', head: true })
@@ -1066,7 +1135,11 @@ async function checkSupabaseTables() {
       } catch (e) {
         results += `⚠️ جدول "${table}": ${e.message}<br>`;
       }
+      
+      updateProgress(20 + ((i + 1) / tables.length * 80));
     }
+    
+    updateProgress(100);
     
     showSyncModal('نتایج بررسی', `
       <div style="text-align: right; max-height:400px; overflow:auto;">
@@ -1075,6 +1148,12 @@ async function checkSupabaseTables() {
         </div>
         <div style="margin-top:10px; font-size:13px;">
           ${results}
+        </div>
+        <div style="margin-top:15px; font-size:12px; color:#666;">
+          <strong>توضیح:</strong><br>
+          • ✅ جدول موجود است<br>
+          • ❌ جدول وجود ندارد<br>
+          • ⚠️ خطا در بررسی جدول
         </div>
       </div>
     `);
@@ -1100,6 +1179,8 @@ async function loadDataFromSupabase() {
     updateProgress(10);
     
     updateProgress(30);
+    
+    // دریافت داده‌ها به صورت موازی
     const [recordsResponse, usersResponse, productsResponse] = await Promise.allSettled([
       supabase.from('records').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
       supabase.from('users').select('*').eq('user_id', currentUser.id),
@@ -1111,6 +1192,7 @@ async function loadDataFromSupabase() {
     const errors = [];
     let records = [], users = [], products = [];
     
+    // پردازش رکوردها
     if (recordsResponse.status === 'fulfilled' && !recordsResponse.value.error) {
       records = recordsResponse.value.data || [];
     } else if (recordsResponse.status === 'rejected') {
@@ -1119,6 +1201,7 @@ async function loadDataFromSupabase() {
       errors.push(`رکوردها: ${recordsResponse.value.error.message}`);
     }
     
+    // پردازش کاربران
     if (usersResponse.status === 'fulfilled' && !usersResponse.value.error) {
       users = usersResponse.value.data || [];
     } else if (usersResponse.status === 'rejected') {
@@ -1127,6 +1210,7 @@ async function loadDataFromSupabase() {
       errors.push(`کاربران: ${usersResponse.value.error.message}`);
     }
     
+    // پردازش کالاها
     if (productsResponse.status === 'fulfilled' && !productsResponse.value.error) {
       products = productsResponse.value.data || [];
     } else if (productsResponse.status === 'rejected') {
@@ -1136,11 +1220,20 @@ async function loadDataFromSupabase() {
     }
     
     updateProgress(70);
+    
+    // پاک کردن داده‌های محلی فعلی
     await clearStore();
     
     updateProgress(80);
+    
+    // ذخیره داده‌های جدید در IndexedDB
     for (const record of records) {
-      await addRecordToDb({ ...record, synced: true });
+      await addRecordToDb({ 
+        ...record, 
+        synced: true,
+        // تبدیل به فرمت مورد نیاز IndexedDB
+        date_iso: record.created_at || new Date().toISOString()
+      });
     }
     
     for (const user of users) {
@@ -1152,6 +1245,8 @@ async function loadDataFromSupabase() {
     }
     
     updateProgress(90);
+    
+    // بارگذاری مجدد داده‌ها در رابط کاربری
     await loadUsers();
     await loadProductsToSelect();
     await renderList();
@@ -1176,6 +1271,9 @@ async function loadDataFromSupabase() {
           📦 ${products.length} کالا دریافت شد
         </div>
         ${errorsHtml}
+        <div style="margin-top:15px; font-size:12px; color:#666;">
+          <strong>توجه:</strong> داده‌های قدیمی پاک شدند و با داده‌های سرور جایگزین شدند.
+        </div>
       </div>
     `;
     
@@ -1187,6 +1285,7 @@ async function loadDataFromSupabase() {
     const errorHtml = `
       <div class="error-box">
         <strong>خطا در دریافت داده‌ها:</strong> ${error.message}
+        ${error.details ? `<br><small>${error.details}</small>` : ''}
       </div>
     `;
     addToSyncLog('error', 'خطا در دریافت داده از سرور', error.message);
@@ -1200,16 +1299,23 @@ let db=null;
 
 async function openDb(){
   return new Promise((res,rej)=>{
-    const rq=indexedDB.open(DB_NAME,7);
+    const rq=indexedDB.open(DB_NAME,8); // نسخه افزایش یافته
     rq.onupgradeneeded=e=>{
       db=e.target.result;
       if(!db.objectStoreNames.contains('records')){
         const st=db.createObjectStore('records',{keyPath:'id',autoIncrement:true});
         st.createIndex('product','product',{unique:false});
         st.createIndex('synced','synced',{unique:false});
+        st.createIndex('user_id','user_id',{unique:false});
       }
-      if(!db.objectStoreNames.contains('users')) db.createObjectStore('users',{keyPath:'id',autoIncrement:true});
-      if(!db.objectStoreNames.contains('products')) db.createObjectStore('products',{keyPath:'id',autoIncrement:true});
+      if(!db.objectStoreNames.contains('users')) {
+        const st = db.createObjectStore('users',{keyPath:'id',autoIncrement:true});
+        st.createIndex('user_id','user_id',{unique:false});
+      }
+      if(!db.objectStoreNames.contains('products')) {
+        const st = db.createObjectStore('products',{keyPath:'id',autoIncrement:true});
+        st.createIndex('user_id','user_id',{unique:false});
+      }
     };
     rq.onsuccess=e=>{ db=e.target.result; res(db); };
     rq.onerror=e=>rej(e);
@@ -1221,9 +1327,9 @@ async function addRecordToDb(r){
   return new Promise((res,rej)=>{
     const tx=db.transaction(['records'],'readwrite'); 
     const st=tx.objectStore('records'); 
-    r.date_iso=new Date().toISOString(); 
+    r.date_iso=r.date_iso || new Date().toISOString(); 
     r.synced = r.synced || false;
-    r.user_id = currentUser?.id;
+    r.user_id = currentUser?.id || r.user_id;
     st.add(r); 
     tx.oncomplete=()=>res(true); 
     tx.onerror=e=>rej(e);
@@ -1237,6 +1343,7 @@ async function updateRecordInDb(id, r){
     const st=tx.objectStore('records'); 
     r.id = id;
     r.date_iso = r.date_iso || new Date().toISOString();
+    r.user_id = currentUser?.id || r.user_id;
     st.put(r); 
     tx.oncomplete=()=>res(true); 
     tx.onerror=e=>rej(e);
@@ -1250,6 +1357,7 @@ async function getAllRecords(){
     const st=tx.objectStore('records'); 
     const all=st.getAll(); 
     all.onsuccess=()=>{
+      // فیلتر کردن رکوردهای کاربر جاری
       const userRecords = (all.result||[]).filter(r => !r.user_id || r.user_id === currentUser?.id);
       res(userRecords);
     }; 
@@ -1273,7 +1381,11 @@ async function addUser(name){
   await openDb(); 
   return new Promise((res,rej)=>{
     const tx=db.transaction('users','readwrite'); 
-    tx.objectStore('users').add({name, user_id: currentUser?.id}); 
+    tx.objectStore('users').add({
+      name, 
+      user_id: currentUser?.id,
+      created_at: new Date().toISOString()
+    }); 
     tx.oncomplete=()=>res(true); 
     tx.onerror=e=>rej(e);
   });
@@ -1296,7 +1408,12 @@ async function updateUser(id, name){
   await openDb(); 
   return new Promise((res,rej)=>{
     const tx=db.transaction('users','readwrite'); 
-    tx.objectStore('users').put({id, name, user_id: currentUser?.id}); 
+    tx.objectStore('users').put({
+      id, 
+      name, 
+      user_id: currentUser?.id,
+      updated_at: new Date().toISOString()
+    }); 
     tx.oncomplete=()=>res(true); 
     tx.onerror=e=>rej(e);
   });
@@ -1317,7 +1434,11 @@ async function addProduct(name){
   await openDb(); 
   return new Promise((res,rej)=>{
     const tx=db.transaction('products','readwrite'); 
-    tx.objectStore('products').add({name, user_id: currentUser?.id}); 
+    tx.objectStore('products').add({
+      name, 
+      user_id: currentUser?.id,
+      created_at: new Date().toISOString()
+    }); 
     tx.oncomplete=()=>res(true); 
     tx.onerror=e=>rej(e);
   });
@@ -1339,7 +1460,12 @@ async function updateProduct(id, name){
   await openDb(); 
   return new Promise((res,rej)=>{
     const tx=db.transaction('products','readwrite'); 
-    tx.objectStore('products').put({id, name, user_id: currentUser?.id}); 
+    tx.objectStore('products').put({
+      id, 
+      name, 
+      user_id: currentUser?.id,
+      updated_at: new Date().toISOString()
+    }); 
     tx.oncomplete=()=>res(true); 
     tx.onerror=e=>rej(e);
   });
@@ -1388,7 +1514,8 @@ async function saveRecord(){
     receiver:document.getElementById('receiver').value||'',
     employer_rep:document.getElementById('employer_rep').value||'',
     description:document.getElementById('description').value||'',
-    synced: false
+    synced: false,
+    user_id: currentUser.id
   };
   
   if(!rec.product || !rec.amount || !rec.operation){
@@ -1440,7 +1567,7 @@ async function renderList(){
     const thRow=document.getElementById('thead_row'); 
     thRow.innerHTML=''; 
     
-    const cols=['ID','تاریخ','ثبت‌کننده','کالا','عملیات','تعداد','سریال','شرکت','تحویل‌دهنده','تحویل‌گیرنده','نماینده','توضیحات','عملیات'];
+    const cols=['ID','تاریخ','ثبت‌کننده','کالا','عملیات','تعداد','سریال','شرکت','تحویل‌دهنده','تحویل‌گیرنده','نماینده','توضیحات','همگام‌سازی','عملیات'];
     cols.forEach(c=>{
       const th=document.createElement('th'); 
       th.textContent=c; 
@@ -1457,21 +1584,31 @@ async function renderList(){
       fields.forEach(f=>{
         const td=document.createElement('td'); 
         td.textContent=r[f]||''; 
-        
-        if (f === 'id' && r.synced === false) {
-          td.style.color = 'orange';
-          td.title = 'هنوز همگام‌سازی نشده';
-        }
-        
         tr.appendChild(td);
       });
       
-      const td=document.createElement('td'); 
+      // ستون همگام‌سازی
+      const syncTd=document.createElement('td'); 
+      if (r.synced) {
+        syncTd.innerHTML = '✅';
+        syncTd.style.color = 'green';
+        syncTd.title = 'همگام‌سازی شده';
+      } else {
+        syncTd.innerHTML = '⏳';
+        syncTd.style.color = 'orange';
+        syncTd.title = 'در انتظار همگام‌سازی';
+      }
+      tr.appendChild(syncTd);
+      
+      // ستون عملیات
+      const actionTd=document.createElement('td'); 
       
       const btnEdit=document.createElement('button'); 
       btnEdit.textContent='ویرایش'; 
       btnEdit.onclick=()=>editRecord(r);
       btnEdit.style.marginLeft = '5px';
+      btnEdit.style.fontSize = '12px';
+      btnEdit.style.padding = '4px 8px';
       
       const btnDel=document.createElement('button'); 
       btnDel.textContent='حذف'; 
@@ -1492,10 +1629,12 @@ async function renderList(){
           }
         }
       };
+      btnDel.style.fontSize = '12px';
+      btnDel.style.padding = '4px 8px';
       
-      td.appendChild(btnEdit); 
-      td.appendChild(btnDel); 
-      tr.appendChild(td);
+      actionTd.appendChild(btnEdit); 
+      actionTd.appendChild(btnDel); 
+      tr.appendChild(actionTd);
       
       tbody.appendChild(tr);
     });
@@ -1564,11 +1703,15 @@ async function loadUsers(){
       
       const inp=document.createElement('input'); 
       inp.value=u.name; 
-      inp.onchange=()=>updateUser(u.id,inp.value);
+      inp.style.width = '150px';
+      inp.onchange=()=>updateUser(u.id,inp.value).then(loadUsers);
       
       const btn=document.createElement('button'); 
       btn.textContent='حذف'; 
       btn.className='danger'; 
+      btn.style.marginRight = '5px';
+      btn.style.fontSize = '12px';
+      btn.style.padding = '4px 8px';
       btn.onclick=()=>{
         if(confirm('آیا مطمئن هستید می‌خواهید این کاربر را حذف کنید؟')) {
           deleteUser(u.id).then(loadUsers);
@@ -1621,11 +1764,15 @@ async function loadProductsToSelect(){
       
       const inp=document.createElement('input'); 
       inp.value=p.name; 
+      inp.style.width = '150px';
       inp.onchange=()=>updateProduct(p.id,inp.value).then(loadProductsToSelect);
       
       const btn=document.createElement('button'); 
       btn.textContent='حذف'; 
       btn.className='danger'; 
+      btn.style.marginRight = '5px';
+      btn.style.fontSize = '12px';
+      btn.style.padding = '4px 8px';
       btn.onclick=()=>{
         if(confirm('آیا مطمئن هستید می‌خواهید این کالا را حذف کنید؟')) {
           deleteProduct(p.id).then(loadProductsToSelect);
@@ -1672,19 +1819,30 @@ async function renderProductModal(){
     const div=document.getElementById('productListModal'); 
     div.innerHTML=''; 
     
+    if (all.length === 0) {
+      div.innerHTML = '<div class="info-box" style="text-align:center;">کالایی وجود ندارد</div>';
+      return;
+    }
+    
     all.forEach(p=>{
       const d=document.createElement('div'); 
       d.className='manage-item';
+      d.style.display = 'flex';
+      d.style.alignItems = 'center';
+      d.style.marginBottom = '5px';
       
       const inp=document.createElement('input'); 
       inp.value=p.name; 
-      inp.style.width='60%'; 
+      inp.style.width='70%'; 
+      inp.style.marginLeft = '5px';
       inp.onchange=()=>updateProduct(p.id,inp.value).then(renderProductModal).then(loadProductsToSelect);
       
       const del=document.createElement('button'); 
       del.textContent='حذف'; 
       del.className='danger'; 
-      del.style.marginLeft='6px'; 
+      del.style.marginRight='5px'; 
+      del.style.fontSize = '12px';
+      del.style.padding = '4px 8px';
       del.onclick=()=>{
         if(confirm('آیا مطمئن هستید می‌خواهید این کالا را حذف کنید؟')){
           deleteProduct(p.id).then(renderProductModal).then(loadProductsToSelect);
@@ -1697,6 +1855,7 @@ async function renderProductModal(){
     });
   } catch (error) {
     console.error('خطا در نمایش لیست کالاها:', error);
+    div.innerHTML = `<div class="error-box">خطا در بارگذاری کالاها: ${error.message}</div>`;
   }
 }
 
@@ -1732,6 +1891,8 @@ async function importJSON(){
       const total = data.length;
       for(let i = 0; i < data.length; i++) {
         const r = data[i];
+        // اضافه کردن user_id به رکوردهای قدیمی
+        r.user_id = r.user_id || currentUser?.id;
         await addRecordToDb(r); 
         updateProgress((i + 1) / total * 100);
       }
@@ -1767,7 +1928,7 @@ async function exportXLSX(){
 async function exportPDF(){
   try {
     const { jsPDF } = window.jspdf; 
-    const doc = new jsPDF(); 
+    const doc = new jsPDF('p', 'mm', 'a4'); 
     const data=await getAllRecords(); 
     
     doc.setFontSize(16);
@@ -1829,10 +1990,11 @@ async function renderCharts(){
   try {
     const all=await getAllRecords();
     
+    // نمودار شرکت‌ها
     const companies={}; 
     all.forEach(r=>{
       if(r.company && r.company.trim() !== ''){
-        companies[r.company]=(companies[r.company]||0)+r.amount;
+        companies[r.company]=(companies[r.company]||0)+Math.abs(r.amount);
       }
     });
     
@@ -1861,12 +2023,16 @@ async function renderCharts(){
           }
         }
       });
+    } else {
+      document.getElementById('companyPie').parentElement.innerHTML = 
+        '<div class="info-box" style="text-align:center; height:100%; display:flex; align-items:center; justify-content:center;">داده‌ای برای نمایش وجود ندارد</div>';
     }
 
+    // نمودار کالاها
     const items={}; 
     all.forEach(r=>{
       if(r.product && r.product.trim() !== ''){
-        items[r.product]=(items[r.product]||0)+r.amount;
+        items[r.product]=(items[r.product]||0)+Math.abs(r.amount);
       }
     });
     
@@ -1907,6 +2073,9 @@ async function renderCharts(){
           }
         }
       });
+    } else {
+      document.getElementById('topItemsBar').parentElement.innerHTML = 
+        '<div class="info-box" style="text-align:center; height:100%; display:flex; align-items:center; justify-content:center;">داده‌ای برای نمایش وجود ندارد</div>';
     }
   } catch (error) {
     console.error('خطا در نمایش نمودارها:', error);
@@ -1954,7 +2123,8 @@ async function checkConnection(showModal = true) {
           <div class="success-box" style="text-align:right;">
             <strong>✅ اتصال به سرور Supabase با موفقیت برقرار شد.</strong><br>
             <small>🌐 سرور: ${SUPABASE_URL.replace('https://', '')}</small><br>
-            <small>📊 وضعیت: آنلاین</small>
+            <small>📊 وضعیت: آنلاین</small><br>
+            <small>👤 کاربر: ${currentUser?.email || 'نامشخص'}</small>
           </div>
         `);
       }
@@ -1969,7 +2139,8 @@ async function checkConnection(showModal = true) {
           <div class="warning-box" style="text-align:right;">
             <strong>⚠️ اتصال به سرور برقرار نشد.</strong><br>
             <small>🔌 در حالت آفلاین کار می‌کنید.</small><br>
-            <small>🌐 سرور: ${SUPABASE_URL.replace('https://', '')}</small>
+            <small>🌐 سرور: ${SUPABASE_URL.replace('https://', '')}</small><br>
+            <small>👤 کاربر: ${currentUser?.email || 'نامشخص'}</small>
           </div>
         `);
       }
@@ -1995,7 +2166,7 @@ async function checkConnection(showModal = true) {
   }
 }
 
-// شروع برنامه
+// ==================== شروع برنامه ====================
 document.addEventListener('DOMContentLoaded', initApp);
 </script>
 
